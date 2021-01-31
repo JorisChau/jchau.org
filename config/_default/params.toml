@@ -88,7 +88,7 @@ show_related = {post = true}
 ############################
 
 ## Enter contact details (optional). To hide a field, clear it to "".
-email = "student.math.4589@gmail.com"
+email = ""
 #phone = "888 888 88 88"
 #
 ## Address
@@ -200,8 +200,8 @@ plugins_js  = []
 
   # Configuration of Disqus.
   [comments.disqus]
-    shortname = ""  # Paste the shortname from your Disqus dashboard.
-    show_count = false # Show comment count in page header? (true/false)
+    shortname = "jchau"  # Paste the shortname from your Disqus dashboard.
+    show_count = true # Show comment count in page header? (true/false)
 
   # Configuration of Commento.
   [comments.commento]

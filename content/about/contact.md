@@ -5,7 +5,7 @@ content:
     formspree:
       id: null
     netlify:
-      captcha: false
+      captcha: true
     provider: netlify
 design:
   columns: "1"
