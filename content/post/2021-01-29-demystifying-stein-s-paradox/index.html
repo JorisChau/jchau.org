@@ -1,0 +1,121 @@
+---
+title: Demystifying Stein's Paradox
+author: Joris Chau
+date: '2021-01-29'
+slug: demystifying-stein-s-paradox
+categories:
+  - Statistics
+tags:
+  - Stein's paradox
+  - shrinkage estimation
+  - statistics
+  - bias-variance tradeoff
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-01-29T08:45:57+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: true
+projects: []
+references:
+- id: S56
+  title: Inadmissibility of the Usual Estimator for the Mean of a Multivariate Normal Distribution
+  URL: "https://projecteuclid.org/euclid.bsmsp/1200501656"
+  author:
+    - family: Stein
+      given: C.
+  container-title: Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability
+  volume: 1
+  page: 197--206
+  type: article-journal
+  issued:
+    year: 1956
+- id: JS61
+  title: Estimation with quadratic loss
+  URL: "https://projecteuclid.org/euclid.bsmsp/1200512173"
+  author:
+    - family: James
+      given: W.
+    - family: Stein
+      given: C.
+  container-title: Proceedings of the Fourth Berkeley Symposium on Mathematical Statistics and Probability
+  volume: 1
+  page: 361--379
+  type: article-journal
+  issued:
+    year: 1961
+---
+
+
+
+<div id="steins-paradox" class="section level1">
+<h1>Stein’s paradox</h1>
+<p>Stein’s example, also known under the more intriguing name <em>Stein’s Paradox</em>, is a well-known example in statistics that demonstrates the use of <strong>shrinkage</strong> to reduce the mean squared error (<span class="math inline">\(L_2\)</span>-risk) of a multivariate estimator with respect to classical unbiased estimators, such as the maximum likelihood estimator. It is named after <a href="https://en.wikipedia.org/wiki/Charles_M._Stein">Charles Stein</a> who originally introduced this phenomenon in <span class="citation">(Stein <a href="#ref-S56" role="doc-biblioref">1956</a>)</span>, and it is seen as an important contribution to the field of statistics, with grand mentions of Stein’s paradox online, such as:</p>
+<blockquote>
+<p>In the words of one of my professors, “Stein’s Paradox may very well be the most significant result in Mathematical Statistics since World War II.”<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a></p>
+</blockquote>
+<p>This seems like a fairly bold claim, but it is nonetheless an enlightening example as its setup is easy to grasp and the result is quite counter-intuitive at first sight. In its simplest form, Stein’s example can be stated as follows:</p>
+<p>Let <span class="math inline">\(X_1, \ldots, X_p\)</span> be independent random variables, such that <span class="math inline">\(X_i \sim N(\theta_i, 1)\)</span> for each <span class="math inline">\(i = 1, \ldots, p\)</span>. Now, our goal is to estimate the unknown parameters <span class="math inline">\(\theta_1, \ldots, \theta_p\)</span>. Since we have only one noisy measurement of each <span class="math inline">\(\theta_i\)</span>, an obvious estimator is <span class="math inline">\(\hat{\theta}_i = X_i\)</span> for each <span class="math inline">\(i = 1, \ldots, p\)</span>. So far nothing special, but now the interesting part follows.</p>
+<p>If the quality of the estimator is measured by its mean squared error:</p>
+<p><span class="math display">\[
+\mathbb{E}\left[ \Vert \hat{\boldsymbol{\theta}} - \boldsymbol{\theta} \Vert^2 \right] \ = \ \sum_{i = 1}^p \mathbb{E}\left[ (\hat{\theta}_i - \theta_i)^2 \right],
+\]</span>
+then it turns out that this estimator is <em>inadmissible</em> (i.e. suboptimal) whenever <span class="math inline">\(p \geq 3\)</span> in the sense that we can find a different estimator that <strong>always</strong> achieves a lower mean squared error, no matter what the value of <span class="math inline">\(\boldsymbol{\theta}\)</span> is.</p>
+<p>Moreover, such an estimator does not only exist in theory, <span class="citation">(James and Stein <a href="#ref-JS61" role="doc-biblioref">1961</a>)</span> derive the following explicit form of an estimator that strictly dominates <span class="math inline">\(\hat{\boldsymbol{\theta}}\)</span> in terms of mean squared error<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>:</p>
+<p><span class="math display">\[
+\hat{\boldsymbol{\theta}}_{JS} = \left( 1 - \frac{p - 2}{\Vert \boldsymbol{X} \Vert^2}\right) \boldsymbol{X}
+\]</span></p>
+<p>Taking a closer look at the James-Stein estimator, it is seen that it <strong>shrinks</strong> the initial estimator (<span class="math inline">\(\boldsymbol{X}\)</span>) towards the origin<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a> by multiplication with a certain shrinkage factor that is proportional to the norm of <span class="math inline">\(\boldsymbol{X}\)</span> and the dimension <span class="math inline">\(p\)</span>. This certainly seems surprising and for Stein’s audience perhaps even paradoxical: given a set of individual noisy observations with means <span class="math inline">\(\theta_1, \ldots, \theta_p\)</span>, instead of taking the individual observations as estimators of <span class="math inline">\(\theta_1, \ldots, \theta_p\)</span>, we can apparently obtain a <em>better</em> estimator by moving the observations towards some arbitrary point in the space, in this case the origin. How to make sense of this?</p>
+</div>
+<div id="bias-variance-tradeoff" class="section level1">
+<h1>Bias-Variance tradeoff</h1>
+<p>The key insight to make this phenomenon intuitive is to understand that we asses the quality of the estimator by the <strong>combined</strong> mean squared errors of all <span class="math inline">\(\theta_i\)</span>’s, i.e. <span class="math inline">\(\sum_{i = 1}^p \mathbb{E}[(\hat{\theta_i} - \theta_i)^2]\)</span>. If we were to assess the quality of the estimator based only on the mean squared error of a single <span class="math inline">\(\theta_i\)</span>, no shrinkage estimator will in fact be able to uniformly dominate <span class="math inline">\(\hat{\theta}_i = X_i\)</span>. However, since we focus on the mean squared error across all <span class="math inline">\(\theta_i\)</span>’s, it turns out we can do slightly better by reducing the variance of the estimator at the cost of adding some bias. I feel that in some of the online sources I came across before writing this blog, this point is not nearly stressed enough (or not even mentioned at all). Especially in the context of modern statistics and machine learning, where <strong>bias-variance</strong> trade-offs play a key role (an aspect in which Stein may have played a part himself), I believe that Stein’s paradox is an excellent demonstration of how giving up unbiasedness allows one to achieve <em>better</em> estimators in terms of mean squared error.</p>
+<p>Before we make some plots to visualize the previous insights, recall that we can always decompose the mean squared error into (1) a squared bias term and (2) a variance term, the derivation of which only relies on the linearity of the expectation:</p>
+<p><span class="math display">\[
+\sum_{i = 1}^p \mathbb{E}\left[(\hat{\theta}_i - \theta_i)^2 \right] \ = \ \sum_{i = 1}^p \left(\mathbb{E}[\hat{\theta}_i] - \theta_i \right)^2 + \sum_{i = 1}^p \mathbb{E}\left[(\hat{\theta_i} - \mathbb{E}[\hat{\theta_i}])^2\right]
+\]</span>
+The estimator <span class="math inline">\(\hat{\boldsymbol{\theta}} = \boldsymbol{X}\)</span> satisfies <span class="math inline">\(\mathbb{E}[\hat{\boldsymbol{\theta}}] = \boldsymbol{\theta}\)</span> so the first term drops out, and the second term is equal to <span class="math inline">\(p\)</span> due to our assumption that <span class="math inline">\(\text{var}(X_i) = 1\)</span> for each <span class="math inline">\(i\)</span>. So far so good, now let’s define a general shrinkage estimator of the form <span class="math inline">\(\hat{\boldsymbol{\theta}}_{\lambda} = \lambda \boldsymbol{X}\)</span>. Then it is straightforward to write out the squared bias and variance terms explicitly for any given <span class="math inline">\(\lambda \in \mathbb{R}\)</span>:</p>
+<p><span class="math display">\[
+\sum_{i = 1}^p \mathbb{E}\left[(\hat{\theta}_{\lambda, i} - \theta_i)^2 \right] \ = \ \underbrace{(\lambda - 1)^2 \Vert \boldsymbol{\theta} \Vert^2}_{\text{Bias}^2} + \underbrace{\lambda^2 \cdot p}_{\text{Variance}}
+\]</span></p>
+<p>Taking a closer look at the right-hand side, we see that for any given <span class="math inline">\(\lambda\)</span>, the variance term only depends on the dimension <span class="math inline">\(p\)</span>, and the bias term only depends on the norm (i.e. size) of <span class="math inline">\(\boldsymbol{\theta}\)</span>. At one end of the spectrum, if <span class="math inline">\(\lambda = 1\)</span>, we retrieve our original estimator <span class="math inline">\(\hat{\boldsymbol{\theta}}_1 = \boldsymbol{X}\)</span>, which has zero bias and maximal variance. At the other end of the spectrum, if <span class="math inline">\(\lambda = 0\)</span>, the estimator reduces to a constant <span class="math inline">\(\hat{\boldsymbol{\theta}}_0 = \boldsymbol{0}\)</span>, which has zero variance but an arbitrarily large bias.</p>
+<p>The mean squared error of the general shrinkage estimator <span class="math inline">\(\hat{\boldsymbol{\theta}} = \lambda \boldsymbol{X}\)</span> across a range of different values for <span class="math inline">\(\lambda\)</span> is visualized in the animated plot below. From left to right the dimension <span class="math inline">\(p\)</span> is varied between <span class="math inline">\(p = 1, 3, 5\)</span>, which only affects the variance term of <span class="math inline">\(\hat{\boldsymbol{\theta}}_{\lambda}\)</span> and not its bias. In contrast, going through the animation <span class="math inline">\(\Vert \boldsymbol{\theta} \Vert\)</span> ranges from 0 to 3, which only has an impact on the bias of <span class="math inline">\(\hat{\boldsymbol{\theta}}\)</span>, whereas the variance term remains unaffected. As the size of <span class="math inline">\(\boldsymbol{\theta}\)</span> and the dimension <span class="math inline">\(p\)</span> vary, the optimal amounts of shrinkage <span class="math inline">\(\lambda^*\)</span> that minimize the mean squared error (indicated by the red dots) evolve by moving towards <span class="math inline">\(\lambda = 1\)</span> as <span class="math inline">\(\Vert \boldsymbol{\theta} \Vert \to \infty\)</span> at different speeds for different values of <span class="math inline">\(p\)</span>:</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/anim.gif" />
+This visualization effectively illustrates why shrinkage becomes more effective (i.e. choosing a smaller value for <span class="math inline">\(\lambda\)</span>) as the dimension <span class="math inline">\(p\)</span> becomes larger by reducing the variance at the cost of adding some additional bias. Recall that the James-Stein estimator only strictly dominates the unbiased estimator <span class="math inline">\(\hat{\boldsymbol{\theta}} = \boldsymbol{X}\)</span> for <span class="math inline">\(p \geq 3\)</span>.</p>
+<p>On the other hand, the visualization illustrates that for larger values of <span class="math inline">\(\Vert \boldsymbol{\theta} \Vert\)</span>, we should ideally apply less shrinkage (i.e. use a larger value for <span class="math inline">\(\lambda\)</span>), thereby opting for a small bias term at the cost of a larger variance. Essentially, this is exactly what the James-Stein estimator tries to do:</p>
+<p><span class="math display">\[
+\hat{\boldsymbol{\theta}}_{JS} = \left( 1 - \frac{p - 2}{\Vert \boldsymbol{X} \Vert^2}\right) \boldsymbol{X}
+\]</span>
+For larger values of <span class="math inline">\(p\)</span>, <span class="math inline">\(\lambda = 1 - \frac{p - 2}{\Vert \boldsymbol{X} \Vert^2}\)</span> becomes smaller (potentially even becoming negative, which is actually not what we want and suggests why the positive-part James-Stein estimator might still lead to an improvement). For larger values of <span class="math inline">\(\Vert \boldsymbol{\theta} \Vert\)</span>, the shrinkage factor <span class="math inline">\(\lambda\)</span> should move towards 1. The actual value of <span class="math inline">\(\Vert \boldsymbol{\theta} \Vert\)</span> is unknown given only <span class="math inline">\(\boldsymbol{X}\)</span>, but since <span class="math inline">\(\boldsymbol{X}\)</span> itself is centered around <span class="math inline">\(\boldsymbol{\theta}\)</span>, the purpose of the term <span class="math inline">\(\frac{1}{\Vert \boldsymbol{X} \Vert^2}\)</span> in the shrinkage factor is to serve as a proxy<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a> for <span class="math inline">\(\frac{1}{\Vert \boldsymbol{\theta} \Vert^2}\)</span>. This way, the shrinkage factor <span class="math inline">\(\lambda\)</span> will be approximately equal to 1 for large values of <span class="math inline">\(\Vert \boldsymbol{X} \Vert\)</span>.</p>
+<p>Finally, it is now also more intuitive why the choice of the shrinkage target does not actually matter and can be set to any <span class="math inline">\(\boldsymbol{\theta}_0 \in \mathbb{R}^p\)</span> instead of the origin. The mean squared error of the generalized shrinkage estimator <span class="math inline">\(\hat{\boldsymbol{\theta}}_{\theta_0, \lambda} = \boldsymbol{\theta}_0 + \lambda (\boldsymbol{X} - \boldsymbol{\theta}_0)\)</span> is simply:</p>
+<p><span class="math display">\[
+\sum_{i = 1}^p \mathbb{E}\left[(\hat{\theta}_{\theta_0, \lambda, i} - \theta_i)^2 \right] \ = \ (\lambda - 1)^2 \Vert \boldsymbol{\theta} - \boldsymbol{\theta}_0 \Vert^2 + \lambda^2 \cdot p
+\]</span>
+And exactly the same bias-variance tradeoffs apply as before. In particular, the James-Stein estimator with a non-trivial shrinkage target <span class="math inline">\(\boldsymbol{\theta}_0\)</span> becomes:</p>
+<p><span class="math display">\[
+\hat{\boldsymbol{\theta}}_{JS, \theta_0} = \boldsymbol{\theta}_0 + \left( 1 - \frac{p - 2}{\Vert \boldsymbol{X} - \boldsymbol{\theta}_0 \Vert^2}\right) (\boldsymbol{X} - \boldsymbol{\theta}_0)
+\]</span></p>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references">
+<div id="ref-JS61">
+<p>James, W., and C. Stein. 1961. “Estimation with Quadratic Loss.” <em>Proceedings of the Fourth Berkeley Symposium on Mathematical Statistics and Probability</em> 1: 361–79. <a href="https://projecteuclid.org/euclid.bsmsp/1200512173">https://projecteuclid.org/euclid.bsmsp/1200512173</a>.</p>
+</div>
+<div id="ref-S56">
+<p>Stein, C. 1956. “Inadmissibility of the Usual Estimator for the Mean of a Multivariate Normal Distribution.” <em>Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability</em> 1: 197–206. <a href="https://projecteuclid.org/euclid.bsmsp/1200501656">https://projecteuclid.org/euclid.bsmsp/1200501656</a>.</p>
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p><a href="https://www.naftaliharris.com/blog/steinviz/" class="uri">https://www.naftaliharris.com/blog/steinviz/</a>.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>it turns out the James-Stein estimator itself is also inadmissable, as it is dominated by the positive-part James-Stein estimator <span class="math inline">\(\hat{\boldsymbol{\theta}}_{JS+} = \left( 1 - \frac{p - 2}{\Vert \boldsymbol{X} \Vert^2}\right)_+ \boldsymbol{X}\)</span>.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>there is nothing special about the origin in particular and we could shrink just as well towards an arbitrary vector <span class="math inline">\(\boldsymbol{\theta}_0 \in \mathbb{R}^p\)</span>.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>note that <span class="math inline">\(\frac{1}{\Vert \boldsymbol{X} \Vert^2}\)</span> is <em>not</em> an unbiased estimator of <span class="math inline">\(\frac{1}{\Vert \boldsymbol{\theta}\Vert^2}\)</span><a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

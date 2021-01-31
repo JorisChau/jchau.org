@@ -1,6 +1,12 @@
+.project
+.Rhistory
+
 # IDEs
 .idea/
 
 # Hugo
 resources/
 public/
+.Rproj.user
+
+
