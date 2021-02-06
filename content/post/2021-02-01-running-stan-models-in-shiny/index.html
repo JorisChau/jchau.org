@@ -41,17 +41,17 @@ projects: []
 <h2>Demo set-up</h2>
 <p>For demonstration purposes, let’s start by writing a minimal Stan model file <code>lm.stan</code>:</p>
 <pre class="stan"><code>data {
-int&lt;lower=0&gt; N;
-vector[N] x;
-vector[N] y;
+  int&lt;lower=0&gt; N;
+  vector[N] x;
+  vector[N] y;
 }
 parameters {
-real alpha;
-real beta;
-real&lt;lower=0&gt; sigma;
+  real alpha;
+  real beta;
+  real&lt;lower=0&gt; sigma;
 }
 model {
-y ~ normal(alpha + beta * x, sigma);
+  y ~ normal(alpha + beta * x, sigma);
 }</code></pre>
 <p>This Stan file encodes a simple linear regression model of the form:</p>
 <p><span class="math display">\[
@@ -165,51 +165,7 @@ rstantools::rstan_create_package(
   stan_files = &quot;lm.stan&quot;
 )</code></pre>
 <p>After updating the DESCRIPTION file and roxygenizing the package with <code>roxygen2::roxygenize()</code> or <code>devtools::document()</code>, the R-package can be installed with a call to <code>R CMD INSTALL</code> or <code>devtools::install()</code>. Note that building the package from source takes a while, since this is the moment when the Stan models are compiled and made available to R. The compiled Stan model originating from <code>lm.stan</code> is now directly available in the internal object <code>stanmodels</code>, a named list of S4-objects of class <code>"stanmodel"</code>, with each S4-object containing the compiled model version of a single <code>.stan</code> file in the <code>inst/stan</code> folder:</p>
-<pre class="r"><code>shinyStanModels:::stanmodels
-#&gt; $brms_lm
-#&gt; S4 class stanmodel &#39;brms_lm&#39; coded as follows:
-#&gt; // generated with brms 2.14.4
-#&gt; functions {
-#&gt; }
-#&gt; data {
-#&gt;   int&lt;lower=1&gt; N;  // total number of observations
-#&gt;   vector[N] Y;  // response variable
-#&gt;   int&lt;lower=1&gt; K;  // number of population-level effects
-#&gt;   matrix[N, K] X;  // population-level design matrix
-#&gt;   int prior_only;  // should the likelihood be ignored?
-#&gt; }
-#&gt; transformed data {
-#&gt;   int Kc = K - 1;
-#&gt;   matrix[N, Kc] Xc;  // centered version of X without an intercept
-#&gt;   vector[Kc] means_X;  // column means of X before centering
-#&gt;   for (i in 2:K) {
-#&gt;     means_X[i - 1] = mean(X[, i]);
-#&gt;     Xc[, i - 1] = X[, i] - means_X[i - 1];
-#&gt;   }
-#&gt; }
-#&gt; parameters {
-#&gt;   vector[Kc] b;  // population-level effects
-#&gt;   real Intercept;  // temporary intercept for centered predictors
-#&gt;   real&lt;lower=0&gt; sigma;  // residual SD
-#&gt; }
-#&gt; transformed parameters {
-#&gt; }
-#&gt; model {
-#&gt;   // likelihood including all constants
-#&gt;   if (!prior_only) {
-#&gt;     target += normal_id_glm_lpdf(Y | Xc, Intercept, b, sigma);
-#&gt;   }
-#&gt;   // priors including all constants
-#&gt;   target += student_t_lpdf(Intercept | 3, 0, 2.5);
-#&gt;   target += student_t_lpdf(sigma | 3, 0, 2.5)
-#&gt;     - 1 * student_t_lccdf(0 | 3, 0, 2.5);
-#&gt; }
-#&gt; generated quantities {
-#&gt;   // actual population-level intercept
-#&gt;   real b_Intercept = Intercept - dot_product(means_X, b);
-#&gt; } 
-#&gt; 
-#&gt; $lm
+<pre class="r"><code>shinyStanModels:::stanmodels[[&quot;lm&quot;]]
 #&gt; S4 class stanmodel &#39;lm&#39; coded as follows:
 #&gt; data {
 #&gt;   int&lt;lower=0&gt; N;
@@ -240,8 +196,8 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 1).
 #&gt; Chain 1: 
-#&gt; Chain 1: Gradient evaluation took 9e-06 seconds
-#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.09 seconds.
+#&gt; Chain 1: Gradient evaluation took 1.2e-05 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.12 seconds.
 #&gt; Chain 1: Adjust your expectations accordingly!
 #&gt; Chain 1: 
 #&gt; Chain 1: 
@@ -258,9 +214,9 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 0.024269 seconds (Warm-up)
-#&gt; Chain 1:                0.01282 seconds (Sampling)
-#&gt; Chain 1:                0.037089 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 0.02348 seconds (Warm-up)
+#&gt; Chain 1:                0.012904 seconds (Sampling)
+#&gt; Chain 1:                0.036384 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 2).
@@ -283,12 +239,12 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 0.02212 seconds (Warm-up)
-#&gt; Chain 2:                0.011323 seconds (Sampling)
-#&gt; Chain 2:                0.033443 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 0.018342 seconds (Warm-up)
+#&gt; Chain 2:                0.010276 seconds (Sampling)
+#&gt; Chain 2:                0.028618 seconds (Total)
 #&gt; Chain 2:
 #&gt;    user  system elapsed 
-#&gt;   0.089   0.004   0.093</code></pre>
+#&gt;   0.082   0.004   0.086</code></pre>
 <p>To keep everything together, we can just as well add the <code>app.R</code> file to the R-package in a folder <code>inst/app</code>. The contents of the <code>app.R</code> file are now similar to our initial attempt, but with the call to <code>rstan::stan_model()</code> left out:</p>
 <pre class="r"><code>library(shiny)
 library(rstan)
@@ -412,15 +368,15 @@ shinyApp(ui = ui, server = server)</code></pre>
 #&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 0.010589 seconds (Warm-up)
-#&gt; Chain 1:                0.007658 seconds (Sampling)
-#&gt; Chain 1:                0.018247 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 0.012614 seconds (Warm-up)
+#&gt; Chain 1:                0.00789 seconds (Sampling)
+#&gt; Chain 1:                0.020504 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;brms_lm&#39; NOW (CHAIN 2).
 #&gt; Chain 2: 
-#&gt; Chain 2: Gradient evaluation took 4e-06 seconds
-#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.04 seconds.
+#&gt; Chain 2: Gradient evaluation took 5e-06 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.05 seconds.
 #&gt; Chain 2: Adjust your expectations accordingly!
 #&gt; Chain 2: 
 #&gt; Chain 2: 
@@ -437,24 +393,24 @@ shinyApp(ui = ui, server = server)</code></pre>
 #&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 0.009814 seconds (Warm-up)
-#&gt; Chain 2:                0.006833 seconds (Sampling)
-#&gt; Chain 2:                0.016647 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 0.013598 seconds (Warm-up)
+#&gt; Chain 2:                0.009194 seconds (Sampling)
+#&gt; Chain 2:                0.022792 seconds (Total)
 #&gt; Chain 2:
 #&gt;    user  system elapsed 
-#&gt;   0.264   0.000   0.264
+#&gt;   0.272   0.004   0.277
 
 ## alpha is b_Intercept
 ## beta is b[1] 
 rstan::summary(brms_fit, pars = c(&quot;b_Intercept&quot;, &quot;b&quot;, &quot;sigma&quot;))[[&quot;summary&quot;]]
-#&gt;                    mean      se_mean         sd        2.5%         25%
-#&gt; b_Intercept -0.02039902 0.0034930619 0.09568703 -0.19368439 -0.08497657
-#&gt; b[1]         1.00456561 0.0005244084 0.01549719  0.97414814  0.99513583
-#&gt; sigma        0.14008381 0.0020961171 0.04487087  0.08327148  0.10858835
-#&gt;                     50%        75%     97.5%    n_eff      Rhat
-#&gt; b_Intercept -0.02372821 0.04018439 0.1787594 750.4013 0.9985775
-#&gt; b[1]         1.00503941 1.01459706 1.0341650 873.3067 0.9983906
-#&gt; sigma        0.13044583 0.16038017 0.2502350 458.2451 1.0006752</code></pre>
+#&gt;                    mean      se_mean          sd        2.5%         25%
+#&gt; b_Intercept -0.16612982 0.0022391257 0.047906230 -0.25266006 -0.19430840
+#&gt; b[1]         1.02265339 0.0003004509 0.007365729  1.00624043  1.01890235
+#&gt; sigma        0.06121549 0.0010590610 0.019704589  0.03688066  0.04735738
+#&gt;                     50%         75%       97.5%    n_eff     Rhat
+#&gt; b_Intercept -0.16749992 -0.14237574 -0.06506459 457.7486 1.002797
+#&gt; b[1]         1.02309855  1.02710090  1.03576358 601.0138 1.001239
+#&gt; sigma        0.05742978  0.07102814  0.10913650 346.1727 1.009192</code></pre>
 <p><strong>Remark:</strong> the Stan code generated by <code>brms</code> contains a bit of unnecessary complexity to sample from a simple linear model, but it does not take any effort to generate this Stan code, as we only need to provide the correct <code>brms</code> model syntax.</p>
 </div>
 <div id="a-note-on-deployment" class="section level2">
