@@ -1,0 +1,491 @@
+---
+title: Running compiled Stan models in Shiny
+author: Joris Chau
+date: '2021-02-01'
+slug: running-stan-models-in-shiny
+categories:
+  - R
+tags:
+  - Stan
+  - shiny
+  - rstantools
+  - rstan
+  - R
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-02-01T08:56:33+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+<script src="{{< blogdown/postref >}}index_files/htmlwidgets/htmlwidgets.js"></script>
+<script src="{{< blogdown/postref >}}index_files/d3/d3.min.js"></script>
+<script src="{{< blogdown/postref >}}index_files/dagre/dagre-d3.min.js"></script>
+<link href="{{< blogdown/postref >}}index_files/mermaid/dist/mermaid.css" rel="stylesheet" />
+<script src="{{< blogdown/postref >}}index_files/mermaid/dist/mermaid.slim.min.js"></script>
+<link href="{{< blogdown/postref >}}index_files/DiagrammeR-styles/styles.css" rel="stylesheet" />
+<script src="{{< blogdown/postref >}}index_files/chromatography/chromatography.js"></script>
+<script src="{{< blogdown/postref >}}index_files/DiagrammeR-binding/DiagrammeR.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The aim of this post is to provide a short step-by-step guide on writing interactive <a href="https://shiny.rstudio.com/">R Shiny</a>-applications that include models written in <a href="https://mc-stan.org/">Stan</a> using <a href="https://mc-stan.org/users/interfaces/rstan"><code>rstan</code></a> and <a href="https://mc-stan.org/users/interfaces/rstantools"><code>rstantools</code></a>. The remainder of this post assumes a small amount of working knowledge on writing models in Stan and usage of the package <code>rstan</code> to interface Stan from R.</p>
+<div id="demo-set-up" class="section level2">
+<h2>Demo set-up</h2>
+<p>For demonstration purposes, let’s start by writing a minimal Stan model file <code>lm.stan</code>:</p>
+<pre class="stan"><code>data {
+int&lt;lower=0&gt; N;
+vector[N] x;
+vector[N] y;
+}
+parameters {
+real alpha;
+real beta;
+real&lt;lower=0&gt; sigma;
+}
+model {
+y ~ normal(alpha + beta * x, sigma);
+}</code></pre>
+<p>This Stan file encodes a simple linear regression model of the form:</p>
+<p><span class="math display">\[
+y_i \ \overset{\text{iid}}{\sim} \ N(\alpha + \beta \cdot x_i, \sigma^2), \quad i = 1,\ldots,N
+\]</span></p>
+<p>Next, we create a small shiny-app contained in a single file <code>app.R</code> (in the same directory as <code>lm.stan</code>) that draws posterior samples from the Stan model in <code>lm.stan</code> with calls to <code>rstan::stan_model()</code> and <code>rstan::sampling()</code>:</p>
+<pre class="r"><code>library(shiny)
+library(rstan)
+
+ui &lt;- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      numericInput(&quot;N&quot;, label = &quot;N&quot;, value = 10)
+    ),
+    mainPanel(
+      plotOutput(&quot;posteriors&quot;)
+    )
+  )
+)
+
+server &lt;- function(input, output, session) {
+  ## compile stan model
+  model &lt;- stan_model(file = &quot;lm.stan&quot;)
+  ## draw samples
+  draws &lt;- reactive({
+    N &lt;- input$N
+    sampling(
+      file = &quot;lm.stan&quot;,
+      data = list(N = N, x = seq_len(N), y = rnorm(N, seq_len(N), 0.1)),
+      chains = 2,
+      iter = 1000
+    )
+  })
+  ## plot histograms
+  output$posteriors &lt;- renderPlot({
+    req(draws())
+    op &lt;- par(mfrow = c(1, 2), cex = 1.25)
+    hist(extract(draws(), &quot;alpha&quot;)[[1]], main = bquote(&quot;Posterior samples&quot;~alpha), xlab = expression(alpha))
+    hist(extract(draws(), &quot;beta&quot;)[[1]], main = bquote(&quot;Posterior samples&quot;~beta), xlab = expression(beta))
+    par(op)
+  })
+  
+}
+
+shinyApp(ui = ui, server = server)</code></pre>
+<p>The contents of this shiny-app can be summarized in a simple reactive graph:</p>
+<div id="htmlwidget-1" style="width:100%;height:150px;" class="DiagrammeR html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"diagram":"\ngraph LR\n   A{Update N} --> B[1. Generate new y<sub>1<\/sub>,...,y<sub>N<\/sub><\/br>2. Draw new posterior samples]\n   B --> C[Plot posterior histograms]\n  "},"evals":[],"jsHooks":[]}</script>
+<p>New noisy responses <span class="math inline">\(y_1, \ldots, y_N\)</span> are generated according to <span class="math inline">\(y_i \overset{\text{iid}}{\sim} N(\alpha + \beta \cdot x_i, \sigma^2)\)</span> with <span class="math inline">\(x_i = i\)</span> for each <span class="math inline">\(i = 1,\ldots, N\)</span> and fixed parameters <span class="math inline">\(\alpha = 0\)</span>, <span class="math inline">\(\beta = 1\)</span> and <span class="math inline">\(\sigma = 0.1\)</span>.</p>
+</div>
+<div id="slow-model-compilation" class="section level2">
+<h2>Slow model compilation</h2>
+<p>A fixed number of 2000 posterior samples for <span class="math inline">\(\alpha\)</span> and <span class="math inline">\(\beta\)</span> (and <span class="math inline">\(\sigma\)</span>) is drawn across two individual chains (i.e. 1000 draws per chain), which should not take more than a few seconds to complete on an ordinary laptop computer, especially if <span class="math inline">\(N\)</span> is small. However, when launching the shiny-app, it becomes evident that it takes significantly longer to complete drawing any initial posterior samples.</p>
+<p>The reason for this is (obviously) that the Stan model has to be <strong>recompiled</strong> from the <code>lm.stan</code> file whenever we launch the shiny-app in a new R-session due to the call to <code>rstan::stan_model()</code>. Depending on the compiler settings, it takes up to ~1 minute to compile this single Stan model on my laptop computer, which more or less defeats the purpose of creating a shiny-app for interactive use.</p>
+<p>Luckily, it is quite simple to avoid this unnecessary computational effort: we just have to compile our Stan models beforehand so that we can sample directly from the already compiled Stan models and skip the compilation step in <code>rstan::stan_model()</code>. Before describing a general R-package approach using <code>rstantools</code>, we start with a simpler approach –suitable for a large set of standard regression models– which is to take advantage of the pre-compiled Stan models in <a href="https://mc-stan.org/rstanarm/"><code>rstanarm</code></a>.</p>
+</div>
+</div>
+<div id="pre-compiled-models-with-rstanarm" class="section level1">
+<h1>Pre-compiled models with <code>rstanarm</code></h1>
+<p>If the model we wish to sample from is already made available in R via the <code>rstanarm</code>-package, arguably the most straightforward approach to avoid unnecessary Stan model compilation is to use <code>rstanarm</code>’s R wrapper functions to directly sample from a pre-compiled Stan model. Note that if we are fitting a relative standard regression model, there is a decent chance a pre-compiled model version is available in <code>rstanarm</code>. Besides the fact that the Stan models in <code>rstanarm</code> are pre-compiled, the implementations of the Stan programs are likely more robust and computationally stable than any quick Stan program we would implement ourselves.</p>
+<p>To sample from a simple linear model as defined in <code>lm.stan</code> with <code>rstanarm</code>, it suffices to remove the call to <code>rstan::stan_model()</code> in <code>app.R</code> and replace <code>rstan::sampling()</code> by a call to <code>rstanarm::stan_lm()</code> or <code>rstanarm::stan_glm()</code><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>:</p>
+<pre class="r"><code>library(shiny)
+library(rstanarm)
+
+ui &lt;- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      numericInput(&quot;N&quot;, label = &quot;N&quot;, value = 10)
+    ),
+    mainPanel(
+      plotOutput(&quot;posteriors&quot;)
+    )
+  )
+)
+
+server &lt;- function(input, output, session) {
+  ## draw samples directly
+  draws &lt;- reactive({
+    N &lt;- input$N
+    samples &lt;- stan_glm(
+      formula = y ~ x,
+      data = data.frame(x = seq_len(N), y = rnorm(N, seq_len(N), 0.1)),
+      chains = 2,
+      iter = 1000
+    )
+    as.matrix(samples)[, c(1, 2)]
+  })
+  ## plot histograms
+  output$posteriors &lt;- renderPlot({
+    req(draws())
+    op &lt;- par(mfrow = c(1, 2), cex = 1.25)
+    hist(draws()[, 1], main = bquote(&quot;Posterior samples&quot;~alpha), xlab = expression(alpha))
+    hist(draws()[, 2], main = bquote(&quot;Posterior samples&quot;~beta), xlab = expression(beta))
+    par(op)
+  })
+  
+}
+
+shinyApp(ui = ui, server = server)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/app.gif" /></p>
+<p>The modified shiny-app no longer exhibits the same lack of responsiveness due to (unnecessary) Stan model recompilation, and it is seen from the animation that new posterior samples are generated almost instantly.</p>
+<p><strong>Remark</strong>: note that the model used by <code>stan_glm()</code> is not exactly equivalent to the model in <code>lm.stan</code>, since <code>stan_glm()</code> assigns weakly informative priors to the model parameters by default<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>, whereas (non-informative) uniform priors are used in the original <code>lm.stan</code> file.</p>
+<p>That’s great, but what if the model we wish to fit is not available through the <code>rstanarm</code>-package? In this case, we can mimic the same general approach that <code>rstanarm</code> follows: compile the Stan models <strong>once</strong> on package installation, and directly sample from the pre-compiled models thereafter. As it turns out, we can make use of the excellent <a href="https://mc-stan.org/users/interfaces/rstantools"><code>rstantools</code></a>-package for exactly this purpose. The <code>rstantools</code>-package essentially eliminates the effort of setting up a correct R-package structure and only requires us to include the Stan programs that should be compiled with the R-package.</p>
+</div>
+<div id="creating-a-package-with-rstantools" class="section level1">
+<h1>Creating a package with <code>rstantools</code></h1>
+<p>To set up a new R-package that should interface Stan, we call <code>rstantools::rstan_create_package()</code> which is roughly similar in use to <code>package.skeleton()</code>, (or <code>usethis::create_package()</code> or <code>Rcpp::Rcpp.package.skeleton()</code> for that matter). The already existing <code>lm.stan</code> file can be included immediately when initializing the package, any new Stan files can be added later to the <code>inst/stan</code> folder. If we do not mind having <code>rstantools</code> as a package dependency, it makes sense to set <code>auto_config = TRUE</code> (the default), which avoids the need to manually reconfigure the package with <code>rstantools::rstan_config()</code> whenever a <code>.stan</code> file is <code>inst/stan</code> are added, removed or modified.</p>
+<pre class="r"><code>## initialize R-package 
+rstantools::rstan_create_package(
+  path = &quot;shinyStanModels&quot;,
+  stan_files = &quot;lm.stan&quot;
+)</code></pre>
+<p>After updating the DESCRIPTION file and roxygenizing the package with <code>roxygen2::roxygenize()</code> or <code>devtools::document()</code>, the R-package can be installed with a call to <code>R CMD INSTALL</code> or <code>devtools::install()</code>. Note that building the package from source takes a while, since this is the moment when the Stan models are compiled and made available to R. The compiled Stan model originating from <code>lm.stan</code> is now directly available in the internal object <code>stanmodels</code>, a named list of S4-objects of class <code>"stanmodel"</code>, with each S4-object containing the compiled model version of a single <code>.stan</code> file in the <code>inst/stan</code> folder:</p>
+<pre class="r"><code>shinyStanModels:::stanmodels
+#&gt; $brms_lm
+#&gt; S4 class stanmodel &#39;brms_lm&#39; coded as follows:
+#&gt; // generated with brms 2.14.4
+#&gt; functions {
+#&gt; }
+#&gt; data {
+#&gt;   int&lt;lower=1&gt; N;  // total number of observations
+#&gt;   vector[N] Y;  // response variable
+#&gt;   int&lt;lower=1&gt; K;  // number of population-level effects
+#&gt;   matrix[N, K] X;  // population-level design matrix
+#&gt;   int prior_only;  // should the likelihood be ignored?
+#&gt; }
+#&gt; transformed data {
+#&gt;   int Kc = K - 1;
+#&gt;   matrix[N, Kc] Xc;  // centered version of X without an intercept
+#&gt;   vector[Kc] means_X;  // column means of X before centering
+#&gt;   for (i in 2:K) {
+#&gt;     means_X[i - 1] = mean(X[, i]);
+#&gt;     Xc[, i - 1] = X[, i] - means_X[i - 1];
+#&gt;   }
+#&gt; }
+#&gt; parameters {
+#&gt;   vector[Kc] b;  // population-level effects
+#&gt;   real Intercept;  // temporary intercept for centered predictors
+#&gt;   real&lt;lower=0&gt; sigma;  // residual SD
+#&gt; }
+#&gt; transformed parameters {
+#&gt; }
+#&gt; model {
+#&gt;   // likelihood including all constants
+#&gt;   if (!prior_only) {
+#&gt;     target += normal_id_glm_lpdf(Y | Xc, Intercept, b, sigma);
+#&gt;   }
+#&gt;   // priors including all constants
+#&gt;   target += student_t_lpdf(Intercept | 3, 0, 2.5);
+#&gt;   target += student_t_lpdf(sigma | 3, 0, 2.5)
+#&gt;     - 1 * student_t_lccdf(0 | 3, 0, 2.5);
+#&gt; }
+#&gt; generated quantities {
+#&gt;   // actual population-level intercept
+#&gt;   real b_Intercept = Intercept - dot_product(means_X, b);
+#&gt; } 
+#&gt; 
+#&gt; $lm
+#&gt; S4 class stanmodel &#39;lm&#39; coded as follows:
+#&gt; data {
+#&gt;   int&lt;lower=0&gt; N;
+#&gt;   vector[N] x;
+#&gt;   vector[N] y;
+#&gt; }
+#&gt; parameters {
+#&gt;   real alpha;
+#&gt;   real beta;
+#&gt;   real&lt;lower=0&gt; sigma;
+#&gt; }
+#&gt; model {
+#&gt;   y ~ normal(alpha + x * beta, sigma);
+#&gt; }
+class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
+#&gt; [1] &quot;stanmodel&quot;
+#&gt; attr(,&quot;package&quot;)
+#&gt; [1] &quot;rstan&quot;</code></pre>
+<p>At this point we can directly sample from the S4-model objects with <code>rstan::sampling()</code>:</p>
+<pre class="r"><code>system.time({
+  rstan::sampling(
+    object = shinyStanModels:::stanmodels[[&quot;lm&quot;]],
+    data = list(N = 10L, x = seq_len(10), y = rnorm(10, seq_len(10), 0.1)),
+    chains = 2,
+    iter = 1000
+  )
+})
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 1).
+#&gt; Chain 1: 
+#&gt; Chain 1: Gradient evaluation took 1.3e-05 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.13 seconds.
+#&gt; Chain 1: Adjust your expectations accordingly!
+#&gt; Chain 1: 
+#&gt; Chain 1: 
+#&gt; Chain 1: Iteration:   1 / 1000 [  0%]  (Warmup)
+#&gt; Chain 1: Iteration: 100 / 1000 [ 10%]  (Warmup)
+#&gt; Chain 1: Iteration: 200 / 1000 [ 20%]  (Warmup)
+#&gt; Chain 1: Iteration: 300 / 1000 [ 30%]  (Warmup)
+#&gt; Chain 1: Iteration: 400 / 1000 [ 40%]  (Warmup)
+#&gt; Chain 1: Iteration: 500 / 1000 [ 50%]  (Warmup)
+#&gt; Chain 1: Iteration: 501 / 1000 [ 50%]  (Sampling)
+#&gt; Chain 1: Iteration: 600 / 1000 [ 60%]  (Sampling)
+#&gt; Chain 1: Iteration: 700 / 1000 [ 70%]  (Sampling)
+#&gt; Chain 1: Iteration: 800 / 1000 [ 80%]  (Sampling)
+#&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
+#&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
+#&gt; Chain 1: 
+#&gt; Chain 1:  Elapsed Time: 0.027195 seconds (Warm-up)
+#&gt; Chain 1:                0.011179 seconds (Sampling)
+#&gt; Chain 1:                0.038374 seconds (Total)
+#&gt; Chain 1: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 2).
+#&gt; Chain 2: 
+#&gt; Chain 2: Gradient evaluation took 5e-06 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.05 seconds.
+#&gt; Chain 2: Adjust your expectations accordingly!
+#&gt; Chain 2: 
+#&gt; Chain 2: 
+#&gt; Chain 2: Iteration:   1 / 1000 [  0%]  (Warmup)
+#&gt; Chain 2: Iteration: 100 / 1000 [ 10%]  (Warmup)
+#&gt; Chain 2: Iteration: 200 / 1000 [ 20%]  (Warmup)
+#&gt; Chain 2: Iteration: 300 / 1000 [ 30%]  (Warmup)
+#&gt; Chain 2: Iteration: 400 / 1000 [ 40%]  (Warmup)
+#&gt; Chain 2: Iteration: 500 / 1000 [ 50%]  (Warmup)
+#&gt; Chain 2: Iteration: 501 / 1000 [ 50%]  (Sampling)
+#&gt; Chain 2: Iteration: 600 / 1000 [ 60%]  (Sampling)
+#&gt; Chain 2: Iteration: 700 / 1000 [ 70%]  (Sampling)
+#&gt; Chain 2: Iteration: 800 / 1000 [ 80%]  (Sampling)
+#&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
+#&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
+#&gt; Chain 2: 
+#&gt; Chain 2:  Elapsed Time: 0.022077 seconds (Warm-up)
+#&gt; Chain 2:                0.009639 seconds (Sampling)
+#&gt; Chain 2:                0.031716 seconds (Total)
+#&gt; Chain 2:
+#&gt;    user  system elapsed 
+#&gt;   0.090   0.000   0.089</code></pre>
+<p>To keep everything together, we can just as well add the <code>app.R</code> file to the R-package in a folder <code>inst/app</code>. The contents of the <code>app.R</code> file are now similar to our initial attempt, but with the call to <code>rstan::stan_model()</code> left out:</p>
+<pre class="r"><code>library(shiny)
+library(rstan)
+
+ui &lt;- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      numericInput(&quot;N&quot;, label = &quot;N&quot;, value = 10)
+    ),
+    mainPanel(
+      plotOutput(&quot;posteriors&quot;)
+    )
+  )
+)
+
+server &lt;- function(input, output, session) {
+  ## draw samples 
+  draws &lt;- reactive({
+    N &lt;- input$N
+    sampling(
+      object = shinyStanModels:::stanmodels[[&quot;lm&quot;]],
+      data = list(N = N, x = seq_len(N), y = rnorm(N, seq_len(N), 0.1)),
+      chains = 2,
+      iter = 1000
+    )
+  })
+  ## plot histograms
+  output$posteriors &lt;- renderPlot({
+    req(draws())
+    op &lt;- par(mfrow = c(1, 2), cex = 1.25)
+    hist(extract(draws(), &quot;alpha&quot;)[[1]], main = bquote(&quot;Posterior samples&quot;~alpha), xlab = expression(alpha))
+    hist(extract(draws(), &quot;beta&quot;)[[1]], main = bquote(&quot;Posterior samples&quot;~beta), xlab = expression(beta))
+    par(op)
+  })
+  
+}
+
+shinyApp(ui = ui, server = server)</code></pre>
+<p>The responsiveness of the shiny-app is now the same as in the previous section with the use the <code>rstanarm</code>-package, but we are no longer constrained to only <code>rstanarm</code>’s collection of Stan models.</p>
+<div id="models-created-with-brms" class="section level2">
+<h2>Models created with <code>brms</code></h2>
+<p>Besides <code>rstanarm</code>, the <a href="https://mc-stan.org/users/interfaces/brms"><code>brms</code></a>-package also provides a flexible interface to build Stan models directly using R syntax. The difference between <code>rstanarm</code> and <code>brms</code>, however, is that <code>brms</code> does not rely on pre-compiled Stan models and compiles generated <code>.stan</code> files on-the-fly. This provides additional flexibility with respect to <code>rstanarm</code>, but also means that calling <code>brms::brm()</code> directly in an interactive shiny-app suffers from the same unresponsiveness as <code>rstan::stan_model()</code>.</p>
+<p>As a workaround, we can call <code>brms::make_stancode()</code> to return the Stan program generated by <code>brms</code>:</p>
+<pre class="r"><code>brms::make_stancode(
+  formula = y ~ x, 
+  data = data.frame(x = numeric(1), y = numeric(1)),
+  family = &quot;gaussian&quot;
+)
+#&gt; // generated with brms 2.14.4
+#&gt; functions {
+#&gt; }
+#&gt; data {
+#&gt;   int&lt;lower=1&gt; N;  // total number of observations
+#&gt;   vector[N] Y;  // response variable
+#&gt;   int&lt;lower=1&gt; K;  // number of population-level effects
+#&gt;   matrix[N, K] X;  // population-level design matrix
+#&gt;   int prior_only;  // should the likelihood be ignored?
+#&gt; }
+#&gt; transformed data {
+#&gt;   int Kc = K - 1;
+#&gt;   matrix[N, Kc] Xc;  // centered version of X without an intercept
+#&gt;   vector[Kc] means_X;  // column means of X before centering
+#&gt;   for (i in 2:K) {
+#&gt;     means_X[i - 1] = mean(X[, i]);
+#&gt;     Xc[, i - 1] = X[, i] - means_X[i - 1];
+#&gt;   }
+#&gt; }
+#&gt; parameters {
+#&gt;   vector[Kc] b;  // population-level effects
+#&gt;   real Intercept;  // temporary intercept for centered predictors
+#&gt;   real&lt;lower=0&gt; sigma;  // residual SD
+#&gt; }
+#&gt; transformed parameters {
+#&gt; }
+#&gt; model {
+#&gt;   // likelihood including all constants
+#&gt;   if (!prior_only) {
+#&gt;     target += normal_id_glm_lpdf(Y | Xc, Intercept, b, sigma);
+#&gt;   }
+#&gt;   // priors including all constants
+#&gt;   target += student_t_lpdf(Intercept | 3, 0, 2.5);
+#&gt;   target += student_t_lpdf(sigma | 3, 0, 2.5)
+#&gt;     - 1 * student_t_lccdf(0 | 3, 0, 2.5);
+#&gt; }
+#&gt; generated quantities {
+#&gt;   // actual population-level intercept
+#&gt;   real b_Intercept = Intercept - dot_product(means_X, b);
+#&gt; }</code></pre>
+<p>By including this Stan code in the <code>inst/stan</code> folder and rebuilding the R-package, we circumvent the compilation step in <code>brms::brm()</code> and can directly sample from the compiled Stan model with <code>rstan::sampling()</code> as in the previous section. Note that the model input is slightly different, since <code>brms</code> has generated the Stan code for a more general multiple linear model:</p>
+<pre class="r"><code>system.time({
+  brms_fit &lt;- rstan::sampling(
+    object = shinyStanModels:::stanmodels[[&quot;brms_lm&quot;]],
+    data = list(N = 10L, ## number of observations
+                Y = rnorm(10, seq_len(10), 0.1),   ## response vector
+                K = 2L, ## number of predictors
+                X = cbind(alpha = rep(1, 10), beta = seq_len(10)), ## predictor matrix 
+                prior_only = FALSE  ## set to TRUE to evaluate only the priors
+    ),
+    chains = 2,
+    iter = 1000
+  )
+})
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;brms_lm&#39; NOW (CHAIN 1).
+#&gt; Chain 1: 
+#&gt; Chain 1: Gradient evaluation took 7e-06 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
+#&gt; Chain 1: Adjust your expectations accordingly!
+#&gt; Chain 1: 
+#&gt; Chain 1: 
+#&gt; Chain 1: Iteration:   1 / 1000 [  0%]  (Warmup)
+#&gt; Chain 1: Iteration: 100 / 1000 [ 10%]  (Warmup)
+#&gt; Chain 1: Iteration: 200 / 1000 [ 20%]  (Warmup)
+#&gt; Chain 1: Iteration: 300 / 1000 [ 30%]  (Warmup)
+#&gt; Chain 1: Iteration: 400 / 1000 [ 40%]  (Warmup)
+#&gt; Chain 1: Iteration: 500 / 1000 [ 50%]  (Warmup)
+#&gt; Chain 1: Iteration: 501 / 1000 [ 50%]  (Sampling)
+#&gt; Chain 1: Iteration: 600 / 1000 [ 60%]  (Sampling)
+#&gt; Chain 1: Iteration: 700 / 1000 [ 70%]  (Sampling)
+#&gt; Chain 1: Iteration: 800 / 1000 [ 80%]  (Sampling)
+#&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
+#&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
+#&gt; Chain 1: 
+#&gt; Chain 1:  Elapsed Time: 0.010648 seconds (Warm-up)
+#&gt; Chain 1:                0.008108 seconds (Sampling)
+#&gt; Chain 1:                0.018756 seconds (Total)
+#&gt; Chain 1: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;brms_lm&#39; NOW (CHAIN 2).
+#&gt; Chain 2: 
+#&gt; Chain 2: Gradient evaluation took 5e-06 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.05 seconds.
+#&gt; Chain 2: Adjust your expectations accordingly!
+#&gt; Chain 2: 
+#&gt; Chain 2: 
+#&gt; Chain 2: Iteration:   1 / 1000 [  0%]  (Warmup)
+#&gt; Chain 2: Iteration: 100 / 1000 [ 10%]  (Warmup)
+#&gt; Chain 2: Iteration: 200 / 1000 [ 20%]  (Warmup)
+#&gt; Chain 2: Iteration: 300 / 1000 [ 30%]  (Warmup)
+#&gt; Chain 2: Iteration: 400 / 1000 [ 40%]  (Warmup)
+#&gt; Chain 2: Iteration: 500 / 1000 [ 50%]  (Warmup)
+#&gt; Chain 2: Iteration: 501 / 1000 [ 50%]  (Sampling)
+#&gt; Chain 2: Iteration: 600 / 1000 [ 60%]  (Sampling)
+#&gt; Chain 2: Iteration: 700 / 1000 [ 70%]  (Sampling)
+#&gt; Chain 2: Iteration: 800 / 1000 [ 80%]  (Sampling)
+#&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
+#&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
+#&gt; Chain 2: 
+#&gt; Chain 2:  Elapsed Time: 0.010542 seconds (Warm-up)
+#&gt; Chain 2:                0.008779 seconds (Sampling)
+#&gt; Chain 2:                0.019321 seconds (Total)
+#&gt; Chain 2:
+#&gt;    user  system elapsed 
+#&gt;   0.252   0.000   0.253
+
+## alpha is b_Intercept
+## beta is b[1] 
+rstan::summary(brms_fit, pars = c(&quot;b_Intercept&quot;, &quot;b&quot;, &quot;sigma&quot;))[[&quot;summary&quot;]]
+#&gt;                   mean      se_mean         sd        2.5%         25%
+#&gt; b_Intercept 0.03328446 0.0051971870 0.11299883 -0.20212759 -0.03005243
+#&gt; b[1]        0.99003951 0.0007934658 0.01811843  0.95604897  0.97801915
+#&gt; sigma       0.15937017 0.0024127668 0.04852950  0.09328548  0.12638982
+#&gt;                    50%       75%     97.5%    n_eff      Rhat
+#&gt; b_Intercept 0.03405134 0.1039991 0.2462594 472.7279 0.9984321
+#&gt; b[1]        0.98987146 1.0004867 1.0296898 521.4167 0.9986730
+#&gt; sigma       0.15125928 0.1821660 0.2830700 404.5582 1.0139809</code></pre>
+<p><strong>Remark:</strong> the Stan code generated by <code>brms</code> contains a bit of unnecessary complexity to sample from a simple linear model, but it does not take any effort to generate this Stan code, as we only need to provide the correct <code>brms</code> model syntax.</p>
+</div>
+<div id="a-note-on-deployment" class="section level2">
+<h2>A note on deployment</h2>
+<p>When deploying the shiny-app to e.g. <a href="https://www.shinyapps.io/">shinyapps.io</a> or <a href="https://rstudio.com/products/connect/">RStudio Connect</a> using the <a href="https://rstudio.github.io/rsconnect/"><code>rsconnect</code></a>-package, the R-package generated with <code>rstantools</code> can be made available in a git repository on e.g. <a href="https://github.com/">github</a> or some other public repository, from which <code>rsconnect</code> is able to fetch and install the R-package when deploying the shiny-app.</p>
+<p>Another solution to deploy and host shiny-apps on a server is <a href="https://www.shinyproxy.io/">ShinyProxy</a>, which launches shiny-apps from individual <a href="https://www.docker.com/">Docker</a> containers. By installing the R-package generated by <code>rstantools</code> when building the Docker image of the shiny-app, we ensure that we can directly sample from our compiled Stan models whenever a new Docker container is started. The following Dockerfile provides a minimal template to install the <code>rstantools</code>-generated R-package from a bundled (<code>.tar.gz</code>) package file and serve the shiny-app at port 3838:</p>
+<pre class="dockerfile"><code>FROM rocker/r-ver:4.0.3
+
+# install system dependencies
+RUN apt-get update &amp;&amp; \
+  apt-get install -y --no-install-recommends \
+  libv8-dev &amp;&amp; \
+  apt-get clean &amp;&amp; \ 
+  rm -rf /var/lib/apt/lists/ 
+
+# install R packages (using littler)
+# this assumes .tar.gz exists in same folder as Dockerfile
+COPY shinyStanModels_0.1.tar.gz ./
+RUN install2.r --error shiny rstan rstantools &amp;&amp; \
+  install2.r --error shinyStanModels_0.1.tar.gz &amp;&amp; \
+  rm *.tar.gz
+
+EXPOSE 3838
+
+CMD [&quot;R&quot;, &quot;-e&quot;, &quot;shiny::runApp(appDir = system.file(&#39;app&#39;, package = &#39;shinyStanModels&#39;), port = 3838, host = &#39;0.0.0.0&#39;)&quot;]
+</code></pre>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>For simplicity <code>stan_glm()</code> is used instead of <code>stan_lm()</code>, as <code>stan_glm()</code> automatically assigns <em>weakly informative priors</em>, whereas <code>stan_lm()</code> expects a <code>prior</code> argument using an additional call to <code>R2()</code>.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p><a href="http://mc-stan.org/rstanarm/articles/priors.html" class="uri">http://mc-stan.org/rstanarm/articles/priors.html</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

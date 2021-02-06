@@ -22,10 +22,9 @@
     {{ $is_sponsor := site.Params.i_am_a_sponsor | default false }}
     {{ $hide_published_with_footer := site.Params.power_ups.hide_published_with | default true }}
     {{ if not (and $is_sponsor $hide_published_with_footer) }}
-    Published with
-    <a href="https://wowchemy.com" target="_blank" rel="noopener">Wowchemy</a>  —
-    the free, <a href="https://github.com/wowchemy/wowchemy-hugo-modules" target="_blank" rel="noopener">
-    open source</a> website builder that empowers creators.
+    &#169; Joris Chau, 2021. Published with <a href="https://github.com/rstudio/blogdown" target="_blank" rel="noopener">blogdown</a>
+    and the <a href="https://github.com/wowchemy/starter-blog" target="_blank" rel="noopener">Wowchemy/starter-blog</a> theme for 
+    <a href="https://gohugo.io/" target="_blank" rel="noopener">Hugo</a>.
     {{ end }}
   </p>
 </footer>
