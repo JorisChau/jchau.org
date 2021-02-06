@@ -5,6 +5,7 @@ date: '2021-02-01'
 slug: running-stan-models-in-shiny
 categories:
   - R
+  - Stan
 tags:
   - Stan
   - shiny
@@ -19,7 +20,7 @@ featured: no
 image:
   caption: ''
   focal_point: ''
-  preview_only: no
+  preview_only: true
 projects: []
 ---
 
