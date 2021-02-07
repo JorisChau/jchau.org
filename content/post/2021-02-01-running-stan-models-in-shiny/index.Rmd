@@ -82,7 +82,7 @@ server <- function(input, output, session) {
   draws <- reactive({
     N <- input$N
     sampling(
-      file = "lm.stan",
+      object = model,
       data = list(N = N, x = seq_len(N), y = rnorm(N, seq_len(N), 0.1)),
       chains = 2,
       iter = 1000
