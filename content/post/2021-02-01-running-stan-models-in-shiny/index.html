@@ -79,7 +79,7 @@ server &lt;- function(input, output, session) {
   draws &lt;- reactive({
     N &lt;- input$N
     sampling(
-      file = &quot;lm.stan&quot;,
+      object = model,
       data = list(N = N, x = seq_len(N), y = rnorm(N, seq_len(N), 0.1)),
       chains = 2,
       iter = 1000
@@ -196,8 +196,8 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 1).
 #&gt; Chain 1: 
-#&gt; Chain 1: Gradient evaluation took 1.2e-05 seconds
-#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.12 seconds.
+#&gt; Chain 1: Gradient evaluation took 7e-06 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
 #&gt; Chain 1: Adjust your expectations accordingly!
 #&gt; Chain 1: 
 #&gt; Chain 1: 
@@ -214,9 +214,9 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 0.02348 seconds (Warm-up)
-#&gt; Chain 1:                0.012904 seconds (Sampling)
-#&gt; Chain 1:                0.036384 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 0.025635 seconds (Warm-up)
+#&gt; Chain 1:                0.011495 seconds (Sampling)
+#&gt; Chain 1:                0.03713 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;lm&#39; NOW (CHAIN 2).
@@ -239,12 +239,12 @@ class(shinyStanModels:::stanmodels[[&quot;lm&quot;]])
 #&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 0.018342 seconds (Warm-up)
-#&gt; Chain 2:                0.010276 seconds (Sampling)
-#&gt; Chain 2:                0.028618 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 0.021389 seconds (Warm-up)
+#&gt; Chain 2:                0.011959 seconds (Sampling)
+#&gt; Chain 2:                0.033348 seconds (Total)
 #&gt; Chain 2:
 #&gt;    user  system elapsed 
-#&gt;   0.082   0.004   0.086</code></pre>
+#&gt;   0.091   0.000   0.092</code></pre>
 <p>To keep everything together, we can just as well add the <code>app.R</code> file to the R-package in a folder <code>inst/app</code>. The contents of the <code>app.R</code> file are now similar to our initial attempt, but with the call to <code>rstan::stan_model()</code> left out:</p>
 <pre class="r"><code>library(shiny)
 library(rstan)
@@ -350,8 +350,8 @@ shinyApp(ui = ui, server = server)</code></pre>
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;brms_lm&#39; NOW (CHAIN 1).
 #&gt; Chain 1: 
-#&gt; Chain 1: Gradient evaluation took 8e-06 seconds
-#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+#&gt; Chain 1: Gradient evaluation took 7e-06 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
 #&gt; Chain 1: Adjust your expectations accordingly!
 #&gt; Chain 1: 
 #&gt; Chain 1: 
@@ -368,15 +368,15 @@ shinyApp(ui = ui, server = server)</code></pre>
 #&gt; Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 0.012614 seconds (Warm-up)
-#&gt; Chain 1:                0.00789 seconds (Sampling)
-#&gt; Chain 1:                0.020504 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 0.010128 seconds (Warm-up)
+#&gt; Chain 1:                0.007599 seconds (Sampling)
+#&gt; Chain 1:                0.017727 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;brms_lm&#39; NOW (CHAIN 2).
 #&gt; Chain 2: 
-#&gt; Chain 2: Gradient evaluation took 5e-06 seconds
-#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.05 seconds.
+#&gt; Chain 2: Gradient evaluation took 4e-06 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.04 seconds.
 #&gt; Chain 2: Adjust your expectations accordingly!
 #&gt; Chain 2: 
 #&gt; Chain 2: 
@@ -393,24 +393,24 @@ shinyApp(ui = ui, server = server)</code></pre>
 #&gt; Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 0.013598 seconds (Warm-up)
-#&gt; Chain 2:                0.009194 seconds (Sampling)
-#&gt; Chain 2:                0.022792 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 0.01032 seconds (Warm-up)
+#&gt; Chain 2:                0.007406 seconds (Sampling)
+#&gt; Chain 2:                0.017726 seconds (Total)
 #&gt; Chain 2:
 #&gt;    user  system elapsed 
-#&gt;   0.272   0.004   0.277
+#&gt;   0.249   0.000   0.248
 
 ## alpha is b_Intercept
 ## beta is b[1] 
 rstan::summary(brms_fit, pars = c(&quot;b_Intercept&quot;, &quot;b&quot;, &quot;sigma&quot;))[[&quot;summary&quot;]]
-#&gt;                    mean      se_mean          sd        2.5%         25%
-#&gt; b_Intercept -0.16612982 0.0022391257 0.047906230 -0.25266006 -0.19430840
-#&gt; b[1]         1.02265339 0.0003004509 0.007365729  1.00624043  1.01890235
-#&gt; sigma        0.06121549 0.0010590610 0.019704589  0.03688066  0.04735738
-#&gt;                     50%         75%       97.5%    n_eff     Rhat
-#&gt; b_Intercept -0.16749992 -0.14237574 -0.06506459 457.7486 1.002797
-#&gt; b[1]         1.02309855  1.02710090  1.03576358 601.0138 1.001239
-#&gt; sigma        0.05742978  0.07102814  0.10913650 346.1727 1.009192</code></pre>
+#&gt;                    mean     se_mean         sd        2.5%         25%
+#&gt; b_Intercept -0.03241679 0.003441602 0.08597058 -0.20255183 -0.08314036
+#&gt; b[1]         1.00479364 0.000554437 0.01387275  0.97804522  0.99731017
+#&gt; sigma        0.11512314 0.002013777 0.03697208  0.06929542  0.08966827
+#&gt;                    50%        75%     97.5%    n_eff     Rhat
+#&gt; b_Intercept -0.0325102 0.01781536 0.1331925 623.9909 1.003233
+#&gt; b[1]         1.0049994 1.01301966 1.0328205 626.0673 1.002050
+#&gt; sigma        0.1070385 0.13160902 0.1972350 337.0739 1.000670</code></pre>
 <p><strong>Remark:</strong> the Stan code generated by <code>brms</code> contains a bit of unnecessary complexity to sample from a simple linear model, but it does not take any effort to generate this Stan code, as we only need to provide the correct <code>brms</code> model syntax.</p>
 </div>
 <div id="a-note-on-deployment" class="section level2">
