@@ -15,6 +15,7 @@ ignoreFiles:
   - \.ipynb$
   - .ipynb_checkpoints$
   - \.Rmd$
+  - .rds$
   - \.Rmarkdown$
   - _cache$
 permalinks:

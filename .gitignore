@@ -1,6 +1,7 @@
 .project
 .Rhistory
 .RData
+.rds
 
 # IDEs
 .idea/

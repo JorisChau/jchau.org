@@ -1,0 +1,696 @@
+---
+title: Fitting the Heckman selection model with Stan and R
+author: Joris Chau
+date: '2021-02-07'
+slug: fitting-the-heckman-selection-model-with-stan-and-r
+categories:
+  - Stan
+  - R
+tags:
+  - Heckman selection model
+  - Stan
+  - R
+  - selection bias
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-02-07T20:02:36+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+references:
+- id: H79
+  title: Sample selection bias as a specification error
+  URL: "https://doi.org/10.2307/1912352"
+  author:
+    - family: Heckman
+      given: J.
+  container-title: "Econometrica"
+  volume: 47(1)
+  page: 153--161
+  type: article-journal
+  issued:
+    year: 1979
+- id: M87
+  title: The sensitivity of an empirical model of married women's hours of work to economic and statistical assumptions
+  URL: "https://doi.org/10.2307/1911029"
+  author:
+    - family: Mroz
+      given: T.
+  container-title: "Econometrica"
+  volume: 55(4)
+  page: 765--799
+  type: article-journal
+  issued:
+    year: 1987
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<div id="selection-bias" class="section level2">
+<h2>Selection bias</h2>
+<p><a href="https://en.wikipedia.org/wiki/Selection_bias">Selection bias</a> occurs when sampled data or subjects in a study have been selected in a way that is not representative of the population of interest. As a consequence, conclusions made about the analyzed sample may be difficult to generalize, as the observed effects could be biased towards the sample and do not necessarily extend well to the population that we intended to analyze. In light of the current COVID-19 pandemic, we can think of multiple examples of possible selection bias: (1) the elderly or participants with certain co-morbidities may be underrepresented in a COVID-19 vaccine trial, which makes it hard to analyze the treatment effects for this segment of the population; (2) individuals with strong symptoms may be more likely to get tested than individuals with no symptoms, implying that observed health risks among tested individuals may be more severe than in the general population; (3) surveys to evaluate the government’s response in mitigating the disease spread may produce biased results, as citizens that decide to participate in a voluntary government survey may already have a more positive (or negative) view on the government’s policies and decision making.</p>
+<p>In general, selection bias can manifest itself in different forms, such as <a href="https://en.wikipedia.org/wiki/Sampling_bias">sampling bias</a>, <a href="https://en.wikipedia.org/wiki/Self-selection_bias">self-selection bias</a> (also a form of sampling bias), <a href="https://en.wikipedia.org/wiki/Survivorship_bias">survival bias</a> or <a href="https://catalogofbias.org/biases/allocation-bias/">allocation bias</a>. The website <a href="https://catalogofbias.org/" class="uri">https://catalogofbias.org/</a> gives a comprehensive overview of different types of bias (not only selection bias) that may be encountered in research studies and also provides a large number of illustrative examples.</p>
+</div>
+<div id="mroz-dataset" class="section level2">
+<h2>Mroz dataset</h2>
+<p>A classical dataset demonstrating the effects of sampling bias is the <strong>Mroz dataset</strong> <span class="citation">(Mroz <a href="#ref-M87" role="doc-biblioref">1987</a>)</span>, versions of which are available in R through <code>Mroz87</code> in the <code>sampleSelection</code>-package or <code>Mroz</code> in the <code>car</code>-package. The dataset contains observations from a 1975 Panel Study of Income Dynamics (PSID) on married women’s pay and labor force participation, as well as a number of descriptive variables, such as age, number of children and years of education. Based on the Mroz dataset, we can try to estimate a wage equation for married women in 1975 using the available descriptive variables. However, wages are only observed for women that participate in the labor-force, which introduces a form of selection bias in the observed sample. If this fact is not taken into account, the estimated effects (i.e. parameters) in the wage equation may suffer from a large bias, as a substantial proportion of married women in 1975 did not participate in the labor-force.</p>
+<p>A simple and well-known model to correct for this specific type of selection bias is the Heckman selection model, or <em>Heckit model</em>, as studied in <span class="citation">(Heckman <a href="#ref-H79" role="doc-biblioref">1979</a>)</span>. As an excercise, we will fit the Heckman selection model using Stan (and R) and evaluate the Stan model on simulated data as well as the <code>Mroz87</code> dataset.</p>
+</div>
+</div>
+<div id="heckman-selection-model" class="section level1">
+<h1>Heckman selection model</h1>
+<div id="model-setup" class="section level2">
+<h2>Model setup</h2>
+<p>In the Mroz dataset, wages are only observed for individuals that are participating in the labor-force, but labor-force participation itself can be determined for <strong>each</strong> individual. The Heckman selection model uses this fact by explicitly splitting the regression problem into a model for the response of interest and a model for the binary participation decision. The participation decision is always observed, but the response of interest is only observed if the participation decision is non-zero, thereby accounting for the biased sampling process. More precisely, the original Heckman selection model as in <span class="citation">(Heckman <a href="#ref-H79" role="doc-biblioref">1979</a>)</span> is defined by the following two regression equations:</p>
+<ol style="list-style-type: decimal">
+<li>An outcome equation that represents the response of interest <span class="math inline">\(\boldsymbol{Y} = (Y_1,\ldots,Y_N)&#39; \in \mathbb{R}^N\)</span> by a linear model based on the observed covariates <span class="math inline">\(\boldsymbol{X} \in \mathbb{R}^{N \times p}\)</span>,
+<span class="math display">\[
+Y_i = X_i&#39; \boldsymbol{\beta} + \epsilon_i, \quad \text{for}\ i = 1,\ldots,N
+\]</span></li>
+<li>A selection equation that models a binary participation decision <span class="math inline">\(\boldsymbol{D} = (D_1,\ldots,D_N) \in \mathbb{R}^N\)</span> based on a second set of observed covariates <span class="math inline">\(\boldsymbol{Z} \in \mathbb{R}^{N \times q}\)</span>,
+<span class="math display">\[
+D_i = \boldsymbol{1}\{ Z_i&#39;\boldsymbol{\gamma} + \eta_i  &gt; 0 \}
+\]</span></li>
+</ol>
+<p>The covariates <span class="math inline">\(\boldsymbol{X}\)</span>, <span class="math inline">\(\boldsymbol{Z}\)</span> and the participation decision <span class="math inline">\(\boldsymbol{D}\)</span> are always observed, but the response of interest <span class="math inline">\(Y_i\)</span> for individual <span class="math inline">\(i\)</span> is only observed if <span class="math inline">\(D_i = 1\)</span>. In addition, the original Heckman model assumes joint normality for the error terms:</p>
+<p><span class="math display">\[
+\begin{pmatrix} \epsilon_i \\ \eta_i \end{pmatrix} \ \overset{\text{iid}}{\sim} \ N\left( \begin{pmatrix} 0 \\ 0 \end{pmatrix}, \begin{pmatrix} \sigma_e^2 &amp; \rho \sigma_e \\ \rho \sigma_e &amp; 1 \end{pmatrix} \right)
+\]</span>
+Note that the error terms in the two regression equations are allowed to be correlated. The variance of <span class="math inline">\(\eta_i\)</span> is normalized to 1 as we only know the sign of <span class="math inline">\(Z_i&#39;\boldsymbol{\gamma} + \eta_i\)</span> in observing <span class="math inline">\(D_i\)</span>.</p>
+</div>
+<div id="likelihood-derivation" class="section level2">
+<h2>Likelihood derivation</h2>
+<p>The main effort in writing a Stan program for the Heckman Selection model is in deriving the joint (log-)likelihood function of the parameters <span class="math inline">\(\boldsymbol{\theta} = (\beta_1,\ldots,\beta_p, \gamma_1,\ldots,\gamma_q, \sigma_e^2, \rho)&#39;\)</span>, given the covariates <span class="math inline">\(\boldsymbol{X}\)</span> and <span class="math inline">\(\boldsymbol{Z}\)</span> and the (partial) observations <span class="math inline">\(\boldsymbol{D}\)</span> and <span class="math inline">\(\boldsymbol{Y}\)</span>.</p>
+<p>First, since the error terms <span class="math inline">\(\epsilon_i, \eta_i\)</span> are i.i.d. across individuals, the likelihood can be decomposed as:</p>
+<p><span class="math display">\[
+\begin{aligned}
+L(\boldsymbol{\theta}) = &amp; \prod_{i = 1}^N \Big[ (1 - D_i) \cdot P_{\boldsymbol{\theta}}(D_i = 0 | X_i, Z_i) \\
+&amp; \quad \quad + D_i \cdot P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i) \cdot P_{\boldsymbol{\theta}}(Y_i = y_i | X_i, Z_i) \Big]
+\end{aligned}
+\]</span>
+If <span class="math inline">\(D_i = 0\)</span>, we know nothing about <span class="math inline">\(Y_i\)</span>, for this reason the only contribution to the likelihood if <span class="math inline">\(D_i = 0\)</span> is the probability that <span class="math inline">\(D_i = 0\)</span> itself, which can be simplified to:</p>
+<p><span class="math display">\[
+P_{\boldsymbol{\theta}}(D_i = 0 | X_i, Z_i) \ = \ P_{\boldsymbol{\theta}}(\eta_i &lt; -Z_i&#39;\boldsymbol{\gamma})
+\ = \ \Phi(-Z_i&#39; \boldsymbol{\gamma}) 
+\]</span>
+where the last step uses that the marginal distribution of <span class="math inline">\(\eta_i\)</span> is a standard normal, i.e. <span class="math inline">\(\eta_i \sim N(0, 1)\)</span>. Also, since <span class="math inline">\(Y_i | X_i, \boldsymbol{\theta} \sim N(X_i&#39; \boldsymbol{\beta}, \sigma_e^2)\)</span>, the probability that <span class="math inline">\(Y_i = y_i\)</span> is given by:</p>
+<p><span class="math display">\[
+P_{\boldsymbol{\theta}}(Y_i = y_i | X_i, Z_i) \ = \ \frac{1}{\sigma_e}\phi\left(\frac{y_i - X_i&#39;\boldsymbol{\beta}}{\sigma_e}\right)
+\]</span>
+The only term in the likelihood that remains is <span class="math inline">\(P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i)\)</span>. To find this probability, we use the fact that the conditional distribution of a bivariate normal is again normal with known mean and variance, see e.g. <a href="https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Bivariate_case_2">Wikipedia</a>. Specifically, it can be verified that:</p>
+<p><span class="math display">\[
+\eta_i | X_i, Z_i, Y_i \ \sim \ N\left(\rho \frac{1}{\sigma_e}(y_i - X_i&#39;\boldsymbol{\beta}), 1-\rho^2\right)
+\]</span>
+Using this form for the conditional distribution of <span class="math inline">\(\eta_i\)</span>, the probability that <span class="math inline">\(D_i = 1\)</span> can be written out as:</p>
+<p><span class="math display">\[
+\begin{aligned}
+P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i) &amp; \ = \ P_{\boldsymbol{\theta}}(\eta_i &gt; -Z_i&#39;\boldsymbol{\gamma} | X_i, Z_i, Y_i) \\
+&amp; \ = \ 1 - \Phi\left( \frac{-Z_i&#39;\boldsymbol{\gamma} - \rho\frac{1}{\sigma_e}(y_i - X_i&#39;\boldsymbol{\beta}) }{\sqrt{1 - \rho^2}}    \right) \\ 
+&amp; \ = \ \Phi\left( \frac{Z_i&#39;\boldsymbol{\gamma} + (\rho / \sigma_e) \cdot (y_i - X_i&#39; \boldsymbol{\beta})}{\sqrt{1 - \rho^2}} \right)
+\end{aligned}
+\]</span>
+Combining the previous assertions, we arrive at the following expression for the log-likelihood:</p>
+<p><span class="math display">\[
+\begin{aligned}
+\ell(\boldsymbol{\theta}) \ = \ &amp; \sum_{i = 1}^N \Big[ (1 - D_i) \cdot \ln \Phi(-Z_i&#39;\boldsymbol{\gamma}) + D_i \cdot \Big( \ln \phi((y_i - X_i&#39;\boldsymbol{\beta}) / \sigma_e) - \ln \sigma_e \\
+&amp; \quad \quad + \ln \Phi((Z_i&#39;\boldsymbol{\gamma} + (\rho / \sigma_e) \cdot (y_i - X_i&#39;\boldsymbol{\beta})) \cdot (1 - \rho^2)^{-1/2} ))  \Big) \Big]
+\end{aligned}
+\]</span>
+Maximizing this log-likelihood turns out to be somewhat tricky in practice. For this reason, a two-stage estimator is considered in <span class="citation">(Heckman <a href="#ref-H79" role="doc-biblioref">1979</a>)</span>, which in a first step fits a <a href="https://en.wikipedia.org/wiki/Probit_model">probit</a> model for the participation decision <span class="math inline">\(\boldsymbol{D}\)</span>, and in a second step fits a modified version of the outcome equation for the response of interest <span class="math inline">\(\boldsymbol{Y}\)</span> by plugging in an inverse <a href="https://en.wikipedia.org/wiki/Mills_ratio">Mills ratio</a> estimated in the first stage. The details of the two-stage estimator can be found in <span class="citation">(Heckman <a href="#ref-H79" role="doc-biblioref">1979</a>)</span> or by a quick online search.</p>
+<p>In contrast to the maximum likelihood estimator, the two-stage estimator is not necessarily <a href="https://en.wikipedia.org/wiki/Efficiency_(statistics)">efficient</a>. Another disadvantage is that the estimation error in the first stage is not propagated to the second stage estimates, which makes it less straightforward<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> to obtain (asymptotically) valid standard errors or confidence intervals for the parameters. With this in mind, a Bayesian sampling approach could bring something to the table. Firstly, exploring the entire space of posterior distributions should be computationally more robust than direct optimization of the likelihood. Secondly, all parameters are sampled in a joint framework (based on the derived likelihood), so we have direct access to valid credible intervals as well as other statistics of interest derived from the posteriors.</p>
+</div>
+<div id="model-implementation-in-stan" class="section level2">
+<h2>Model implementation in Stan</h2>
+<p>The following Stan program implements the Heckman selection model by directly incrementing the <code>target</code> total log probability function based on the derived log-likelihood:</p>
+<pre class="stan"><code>data {
+  // dimensions
+  int&lt;lower=1&gt; N;
+  int&lt;lower=1, upper=N&gt; N_y;
+  int&lt;lower=1&gt; p;
+  int&lt;lower=1&gt; q;
+  // covariates
+  matrix[N_y, p] X;
+  matrix[N, q] Z;
+  // responses
+  int&lt;lower=0, upper=1&gt; D[N];
+  vector[N_y] y;
+}
+parameters {
+  vector[p] beta;
+  vector[q] gamma;
+  real&lt;lower=-1,upper=1&gt; rho;
+  real&lt;lower=0&gt; sigma_e;
+}
+model {
+  // naive (truncated) priors
+  beta ~ normal(0, 1);
+  gamma ~ normal(0, 1);
+  rho ~ normal(0, 0.25);
+  sigma_e ~ normal(0, 1);
+  {
+    // log-likelihood
+    vector[N_y] Xb = X * beta;
+    vector[N] Zg = Z * gamma;
+    int ny = 1;
+    for(n in 1:N) {
+      if(D[n] &gt; 0) {
+        target += normal_lpdf(y[ny] | Xb[ny], sigma_e) + log(Phi((Zg[n] + rho / sigma_e * (y[ny] - Xb[ny])) / sqrt(1 - rho^2)));
+        ny += 1; 
+      }
+      else {
+        target += log(Phi(-Zg[n]));
+      }
+    }
+  }
+}
+</code></pre>
+</div>
+<div id="simulated-data" class="section level2">
+<h2>Simulated data</h2>
+<p>Saving the Stan program to a file <code>heckman.stan</code>, we first compile the model in R with <code>rstan::stan_model()</code>:</p>
+<pre class="r"><code>library(rstan)
+
+## compile the model 
+heckman_model &lt;- stan_model(file = &quot;heckman.stan&quot;)</code></pre>
+<p>Next, we generate a simulated dataset and check the parameter estimates obtained by fitting the Stan model. The simulated data is generated from the exact same Heckman selection model setup as described above. The parameters and covariate matrices have been selected to induce a certain degree of correlation between the participation decision <span class="math inline">\(D_i\)</span> and the response <span class="math inline">\(Y_i\)</span>, and the total number individuals with an observed participation decision <span class="math inline">\(D_i\)</span> is set to <span class="math inline">\(N = 512\)</span>. Note that all responses <span class="math inline">\(Y_i\)</span> for which <span class="math inline">\(D_i = 0\)</span> are discarded from the simulated data<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>, as these responses <em>cannot</em> be observed in practice.</p>
+<pre class="r"><code>## parameters
+N &lt;- 512
+beta &lt;- c(0.5, -0.5)
+gamma &lt;- c(0.5, -2.5)
+sigma_e &lt;- 1
+rho &lt;- 0.3
+
+## simulate correlated covariates and noise
+set.seed(0)
+X &lt;- cbind(rep(1, N), rnorm(N))
+Z &lt;- X
+Sigma &lt;- matrix(c(sigma_e^2, rho * sigma_e, rho * sigma_e, 1), ncol = 2)
+e &lt;- MASS::mvrnorm(N, mu = c(0, 0), Sigma = Sigma)
+
+## generate responses
+D &lt;- 1L * c(Z %*% gamma + e[, 2] &gt; 0)
+y &lt;- (X %*% beta + e[, 1])[D &gt; 0]
+
+## fit model to simulated data
+model_fit &lt;- sampling(
+  object = heckman_model, 
+  data = list(N = N, N_y = length(y), p = length(beta), q = length(gamma), X = X[D &gt; 0, ], Z = Z, D = D, y = y)
+)
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 1).
+#&gt; Chain 1: 
+#&gt; Chain 1: Gradient evaluation took 0.000199 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 1.99 seconds.
+#&gt; Chain 1: Adjust your expectations accordingly!
+#&gt; Chain 1: 
+#&gt; Chain 1: 
+#&gt; Chain 1: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 1: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 1: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 1: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 1: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 1: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 1: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 1: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 1: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 1: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 1: 
+#&gt; Chain 1:  Elapsed Time: 1.61821 seconds (Warm-up)
+#&gt; Chain 1:                1.56731 seconds (Sampling)
+#&gt; Chain 1:                3.18552 seconds (Total)
+#&gt; Chain 1: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 2).
+#&gt; Chain 2: 
+#&gt; Chain 2: Gradient evaluation took 0.000128 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.28 seconds.
+#&gt; Chain 2: Adjust your expectations accordingly!
+#&gt; Chain 2: 
+#&gt; Chain 2: 
+#&gt; Chain 2: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 2: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 2: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 2: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 2: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 2: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 2: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 2: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 2: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 2: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 2: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 2: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 2: 
+#&gt; Chain 2:  Elapsed Time: 1.96249 seconds (Warm-up)
+#&gt; Chain 2:                1.6091 seconds (Sampling)
+#&gt; Chain 2:                3.57158 seconds (Total)
+#&gt; Chain 2: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 3).
+#&gt; Chain 3: 
+#&gt; Chain 3: Gradient evaluation took 0.000154 seconds
+#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 1.54 seconds.
+#&gt; Chain 3: Adjust your expectations accordingly!
+#&gt; Chain 3: 
+#&gt; Chain 3: 
+#&gt; Chain 3: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 3: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 3: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 3: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 3: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 3: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 3: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 3: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 3: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 3: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 3: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 3: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 3: 
+#&gt; Chain 3:  Elapsed Time: 1.91283 seconds (Warm-up)
+#&gt; Chain 3:                2.13525 seconds (Sampling)
+#&gt; Chain 3:                4.04808 seconds (Total)
+#&gt; Chain 3: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 4).
+#&gt; Chain 4: 
+#&gt; Chain 4: Gradient evaluation took 0.000149 seconds
+#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 1.49 seconds.
+#&gt; Chain 4: Adjust your expectations accordingly!
+#&gt; Chain 4: 
+#&gt; Chain 4: 
+#&gt; Chain 4: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 4: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 4: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 4: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 4: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 4: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 4: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 4: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 4: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 4: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 4: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 4: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 4: 
+#&gt; Chain 4:  Elapsed Time: 1.55875 seconds (Warm-up)
+#&gt; Chain 4:                1.85192 seconds (Sampling)
+#&gt; Chain 4:                3.41067 seconds (Total)
+#&gt; Chain 4:
+
+model_fit
+#&gt; Inference for Stan model: heckman.
+#&gt; 4 chains, each with iter=2000; warmup=1000; thin=1; 
+#&gt; post-warmup draws per chain=1000, total post-warmup draws=4000.
+#&gt; 
+#&gt;             mean se_mean   sd    2.5%     25%     50%     75%   97.5% n_eff
+#&gt; beta[1]     0.54    0.00 0.12    0.29    0.45    0.53    0.61    0.78  1748
+#&gt; beta[2]    -0.38    0.00 0.11   -0.61   -0.46   -0.38   -0.30   -0.15  1967
+#&gt; gamma[1]    0.28    0.00 0.09    0.11    0.22    0.28    0.34    0.45  3357
+#&gt; gamma[2]   -2.42    0.00 0.20   -2.84   -2.56   -2.41   -2.28   -2.04  3302
+#&gt; rho         0.19    0.00 0.15   -0.13    0.09    0.19    0.29    0.48  1869
+#&gt; sigma_e     0.96    0.00 0.04    0.89    0.94    0.96    0.99    1.05  3296
+#&gt; lp__     -528.41    0.04 1.71 -532.69 -529.35 -528.07 -527.15 -526.09  1800
+#&gt;          Rhat
+#&gt; beta[1]     1
+#&gt; beta[2]     1
+#&gt; gamma[1]    1
+#&gt; gamma[2]    1
+#&gt; rho         1
+#&gt; sigma_e     1
+#&gt; lp__        1
+#&gt; 
+#&gt; Samples were drawn using NUTS(diag_e) at Sat Feb 20 10:19:50 2021.
+#&gt; For each parameter, n_eff is a crude measure of effective sample size,
+#&gt; and Rhat is the potential scale reduction factor on split chains (at 
+#&gt; convergence, Rhat=1).</code></pre>
+<p>Looking at the sampling results returned by <code>rstan::sampling()</code>, we observe no obvious sampling problems. The posterior distributions all cover the target parameters reasonably well (using a total of <span class="math inline">\(N = 512\)</span> observations) and all Markov chains seem to have converged correctly. From the generated pairs plot of the posterior samples, we see that the posterior densities behave nicely and we cannot discern any clearly problematic regions in the sampled parameter space, (although there is a high degree of correlation between the posterior samples for the <span class="math inline">\(\beta\)</span> parameters and the <span class="math inline">\(\rho\)</span> parameter).</p>
+<pre class="r"><code>library(bayesplot)
+
+## pairs plot of posteriors
+color_scheme_set(&quot;red&quot;)
+mcmc_pairs(model_fit, pars = c(&quot;beta[1]&quot;, &quot;beta[2]&quot;, &quot;gamma[1]&quot;, &quot;gamma[2]&quot;, &quot;rho&quot;, &quot;sigma_e&quot;), off_diag_fun = &quot;hex&quot;)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-4-1.png" width="100%" style="display: block; margin: auto;" /></p>
+<p>The animated plot below demonstrates the convergence of the posterior distributions to the target parameters when the number of total observations <span class="math inline">\(N\)</span> increases. The data simulation and sampling procedures (1000 post-warmup draws across 4 individual chains) are the same as before, only the number of observations <span class="math inline">\(N\)</span> is varied in each model fit.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/anim.gif" />
+As a benchmark comparison, we generate the same animated plot showing the posterior distributions sampled from a simple linear model fitted <strong>only</strong> to the selected observations <span class="math inline">\(Y_i\)</span> with <span class="math inline">\(D_i &gt; 0\)</span>. As <span class="math inline">\(N\)</span> increases, the posterior distributions no longer converge<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a> to the target parameters, which is due to the fact that the sampling bias introduced by the participation decision <span class="math inline">\(D_i\)</span> is not taken into account.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/anim1.gif" /></p>
+<p>For completeness, the Stan program used to fit the simple linear models is coded as follows:</p>
+<pre class="stan"><code>data {
+  int&lt;lower=1&gt; N_y;
+  int&lt;lower=1&gt; p;
+  matrix[N_y, p] X;
+  vector[N_y] y;
+}
+parameters {
+  vector[p] beta;
+  real&lt;lower=0&gt; sigma_e;
+}
+model {
+  beta ~ normal(0, 1);
+  sigma_e ~ normal(0, 1);
+  y ~ normal(X * beta, sigma_e);
+}
+</code></pre>
+</div>
+<div id="case-study-mroz-dataset" class="section level2">
+<h2>Case study: Mroz dataset</h2>
+<p>As a real data example, we will estimate a log-wage equation for married women in 1975 based on the <code>Mroz87</code> dataset in the same spirit as <span class="citation">(Mroz <a href="#ref-M87" role="doc-biblioref">1987</a>)</span>. The response of interest is the <code>log(wage)</code> variable, the log-wage in dollars, and the participation decision is encoded in the binary labor-force participation variable <code>lfp</code>.
+The outcome equation for the <code>log(wage)</code> response is modeled as a function of: <code>age</code> (age in years), <code>educ</code> (years of education), <code>huswage</code> (husband’s wage in dollars) and <code>exper</code> (previous worked years). The participation decision is modeled based on: <code>age</code>, <code>educ</code>, <code>hushrs</code> (husband’s hours worked), <code>husage</code> (husband’s age), <code>huswage</code> and <code>kids5</code> (number of children younger than 6).</p>
+<p>As the Stan model is already compiled, the only work that remains is defining the model responses and covariates passed as inputs to <code>rstan::sampling()</code>. Note that we normalize<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a> the covariates to have mean zero and standard deviation 1.</p>
+<pre class="r"><code>library(sampleSelection)
+data(&quot;Mroz87&quot;)
+
+## covariates and response outcome equation
+X &lt;- model.matrix(~ age + educ + huswage + exper + I(exper^2), data = Mroz87)
+X[, -1] &lt;- apply(X[, -1], 2, scale) ## normalize variables
+X &lt;- X[Mroz87$lfp &gt; 0, ]  
+y &lt;- log(Mroz87$wage)[Mroz87$lfp &gt; 0]  ## response
+
+## covariates and response selection equation
+Z &lt;- model.matrix(~ age + educ + hushrs + husage + huswage + kids5, data = Mroz87)
+Z[, -1] &lt;- apply(Z[, -1], 2, scale)  ## normalize variables
+D &lt;- Mroz87$lfp  ## participation decision
+
+## fit Heckman selection model
+model_fit &lt;- rstan::sampling(
+  object = heckman_model, 
+  data = list(N = length(D), N_y = length(y), p = ncol(X), q = ncol(Z), X = X, Z = Z, D = D, y = y)
+)
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 1).
+#&gt; Chain 1: 
+#&gt; Chain 1: Gradient evaluation took 0.000385 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 3.85 seconds.
+#&gt; Chain 1: Adjust your expectations accordingly!
+#&gt; Chain 1: 
+#&gt; Chain 1: 
+#&gt; Chain 1: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 1: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 1: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 1: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 1: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 1: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 1: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 1: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 1: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 1: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 1: 
+#&gt; Chain 1:  Elapsed Time: 5.31302 seconds (Warm-up)
+#&gt; Chain 1:                5.07533 seconds (Sampling)
+#&gt; Chain 1:                10.3883 seconds (Total)
+#&gt; Chain 1: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 2).
+#&gt; Chain 2: 
+#&gt; Chain 2: Gradient evaluation took 0.000197 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.97 seconds.
+#&gt; Chain 2: Adjust your expectations accordingly!
+#&gt; Chain 2: 
+#&gt; Chain 2: 
+#&gt; Chain 2: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 2: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 2: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 2: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 2: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 2: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 2: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 2: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 2: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 2: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 2: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 2: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 2: 
+#&gt; Chain 2:  Elapsed Time: 3.99992 seconds (Warm-up)
+#&gt; Chain 2:                5.39379 seconds (Sampling)
+#&gt; Chain 2:                9.39371 seconds (Total)
+#&gt; Chain 2: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 3).
+#&gt; Chain 3: 
+#&gt; Chain 3: Gradient evaluation took 0.000244 seconds
+#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 2.44 seconds.
+#&gt; Chain 3: Adjust your expectations accordingly!
+#&gt; Chain 3: 
+#&gt; Chain 3: 
+#&gt; Chain 3: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 3: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 3: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 3: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 3: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 3: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 3: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 3: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 3: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 3: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 3: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 3: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 3: 
+#&gt; Chain 3:  Elapsed Time: 4.2066 seconds (Warm-up)
+#&gt; Chain 3:                4.39224 seconds (Sampling)
+#&gt; Chain 3:                8.59884 seconds (Total)
+#&gt; Chain 3: 
+#&gt; 
+#&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 4).
+#&gt; Chain 4: 
+#&gt; Chain 4: Gradient evaluation took 0.000202 seconds
+#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 2.02 seconds.
+#&gt; Chain 4: Adjust your expectations accordingly!
+#&gt; Chain 4: 
+#&gt; Chain 4: 
+#&gt; Chain 4: Iteration:    1 / 2000 [  0%]  (Warmup)
+#&gt; Chain 4: Iteration:  200 / 2000 [ 10%]  (Warmup)
+#&gt; Chain 4: Iteration:  400 / 2000 [ 20%]  (Warmup)
+#&gt; Chain 4: Iteration:  600 / 2000 [ 30%]  (Warmup)
+#&gt; Chain 4: Iteration:  800 / 2000 [ 40%]  (Warmup)
+#&gt; Chain 4: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+#&gt; Chain 4: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+#&gt; Chain 4: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+#&gt; Chain 4: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+#&gt; Chain 4: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+#&gt; Chain 4: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+#&gt; Chain 4: Iteration: 2000 / 2000 [100%]  (Sampling)
+#&gt; Chain 4: 
+#&gt; Chain 4:  Elapsed Time: 4.56936 seconds (Warm-up)
+#&gt; Chain 4:                5.78192 seconds (Sampling)
+#&gt; Chain 4:                10.3513 seconds (Total)
+#&gt; Chain 4:
+
+model_fit
+#&gt; Inference for Stan model: heckman.
+#&gt; 4 chains, each with iter=2000; warmup=1000; thin=1; 
+#&gt; post-warmup draws per chain=1000, total post-warmup draws=4000.
+#&gt; 
+#&gt;             mean se_mean   sd    2.5%     25%     50%     75%   97.5% n_eff
+#&gt; beta[1]     1.12    0.00 0.08    0.96    1.06    1.11    1.17    1.29  1973
+#&gt; beta[2]    -0.01    0.00 0.04   -0.09   -0.04   -0.01    0.02    0.07  4084
+#&gt; beta[3]     0.22    0.00 0.04    0.15    0.19    0.22    0.25    0.29  2948
+#&gt; beta[4]     0.08    0.00 0.04    0.00    0.05    0.08    0.11    0.16  4231
+#&gt; beta[5]     0.33    0.00 0.10    0.13    0.26    0.33    0.40    0.53  3011
+#&gt; beta[6]    -0.18    0.00 0.10   -0.38   -0.25   -0.18   -0.12    0.01  2882
+#&gt; gamma[1]    0.19    0.00 0.05    0.09    0.15    0.19    0.22    0.28  4500
+#&gt; gamma[2]   -0.18    0.00 0.10   -0.39   -0.25   -0.18   -0.12    0.02  2739
+#&gt; gamma[3]    0.37    0.00 0.05    0.26    0.33    0.37    0.40    0.48  3450
+#&gt; gamma[4]   -0.19    0.00 0.05   -0.29   -0.23   -0.19   -0.16   -0.10  3836
+#&gt; gamma[5]   -0.12    0.00 0.11   -0.33   -0.18   -0.12   -0.05    0.09  2862
+#&gt; gamma[6]   -0.24    0.00 0.05   -0.34   -0.27   -0.24   -0.20   -0.13  3367
+#&gt; gamma[7]   -0.48    0.00 0.06   -0.60   -0.52   -0.48   -0.44   -0.36  3705
+#&gt; rho        -0.04    0.00 0.17   -0.39   -0.15   -0.03    0.08    0.27  1923
+#&gt; sigma_e     0.67    0.00 0.02    0.63    0.66    0.67    0.69    0.72  3151
+#&gt; lp__     -891.77    0.07 2.74 -898.08 -893.38 -891.41 -889.82 -887.43  1629
+#&gt;          Rhat
+#&gt; beta[1]     1
+#&gt; beta[2]     1
+#&gt; beta[3]     1
+#&gt; beta[4]     1
+#&gt; beta[5]     1
+#&gt; beta[6]     1
+#&gt; gamma[1]    1
+#&gt; gamma[2]    1
+#&gt; gamma[3]    1
+#&gt; gamma[4]    1
+#&gt; gamma[5]    1
+#&gt; gamma[6]    1
+#&gt; gamma[7]    1
+#&gt; rho         1
+#&gt; sigma_e     1
+#&gt; lp__        1
+#&gt; 
+#&gt; Samples were drawn using NUTS(diag_e) at Sat Feb 20 10:20:35 2021.
+#&gt; For each parameter, n_eff is a crude measure of effective sample size,
+#&gt; and Rhat is the potential scale reduction factor on split chains (at 
+#&gt; convergence, Rhat=1).</code></pre>
+<p>Looking at the sampling results, all chains converged correctly and it seems that the model experienced no obvious issues in sampling from the posterior distributions. Below, we plot the posterior medians for the <span class="math inline">\(\beta\)</span> and <span class="math inline">\(\gamma\)</span> parameter vectors including 50% and 95% credible intervals:</p>
+<pre class="r"><code>## posterior interval plots
+samples &lt;- as.matrix(model_fit)[, c(2:6, 8:13)]
+colnames(samples) &lt;- c(&quot;age (beta)&quot;, &quot;educ (beta)&quot;, &quot;huswage (beta)&quot;, &quot;exper (beta)&quot;, &quot;exper^2 (beta)&quot;, &quot;age (gamma)&quot;, &quot;educ (gamma)&quot;, &quot;hushrs (gamma)&quot;, &quot;husage (gamma)&quot;, &quot;huswage (gamma)&quot;, &quot;kids5 (gamma)&quot;)
+
+mcmc_intervals(samples, point_est = &quot;median&quot;, prob = 0.5, prob_outer = 0.95)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-7-1.png" width="100%" style="display: block; margin: auto;" />
+Some observations we can make from the plotted posterior intervals is that age correlates with participation in the labor-force market, but apparently has no clear effect on the wage of the observed participants. A variable that <em>does</em> highly correlate with the wage is the number previous years worked, which is not too surprising. Also, more years of received education has a positive effect on labor-force participation, whereas having young children has a negative effect on labor-force participation, which seems quite intuitive as well.</p>
+<p>To conclude, we compare these results to the results obtained by fitting the same Heckman selection model using the two-stage estimator of <span class="citation">(Heckman <a href="#ref-H79" role="doc-biblioref">1979</a>)</span> and direct maximum likelihood estimation with <code>sampleSelection::heckit()</code>. The two-stage and maximum likelihood estimators return more or less the same parameter estimates, but only the maximum likelihood estimator calculates standard errors for <span class="math inline">\(\sigma_e\)</span> and <span class="math inline">\(\rho\)</span>. Moreover, the parameter estimates correspond very well to the posterior medians plotted above, so it seems safe to conclude that the Stan model behaves as expected.</p>
+<pre class="r"><code>## select variables and normalize
+Mroz87_new &lt;- Mroz87[, c(&quot;wage&quot;, &quot;lfp&quot;, &quot;age&quot;, &quot;educ&quot;, &quot;huswage&quot;, &quot;exper&quot;, &quot;hushrs&quot;, &quot;husage&quot;, &quot;kids5&quot;)]
+Mroz87_new &lt;- transform(Mroz87_new, exper_2 = exper^2)
+Mroz87_new[, 3:10] &lt;- apply(Mroz87_new[, 3:10], 2, scale)
+
+## two-stage estimator
+twostage_fit &lt;- heckit(
+  selection = lfp ~ age + educ + hushrs + husage + huswage + kids5,
+  outcome = log(wage) ~ age + educ + huswage + exper + exper_2,
+  method = &quot;2step&quot;,
+  data = Mroz87_new
+)
+
+summary(twostage_fit)
+#&gt; --------------------------------------------
+#&gt; Tobit 2 model (sample selection model)
+#&gt; 2-step Heckman / heckit estimation
+#&gt; 753 observations (325 censored and 428 observed)
+#&gt; 16 free parameters (df = 738)
+#&gt; Probit selection equation:
+#&gt;             Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; (Intercept)  0.18652    0.04857   3.841 0.000133 ***
+#&gt; age         -0.18007    0.10606  -1.698 0.089979 .  
+#&gt; educ         0.36817    0.05476   6.723 3.56e-11 ***
+#&gt; hushrs      -0.19418    0.05084  -3.819 0.000145 ***
+#&gt; husage      -0.11948    0.10745  -1.112 0.266519    
+#&gt; huswage     -0.23899    0.05656  -4.225 2.69e-05 ***
+#&gt; kids5       -0.48055    0.06038  -7.959 6.52e-15 ***
+#&gt; Outcome equation:
+#&gt;             Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; (Intercept)  1.11398    0.10567  10.542  &lt; 2e-16 ***
+#&gt; age         -0.01116    0.04166  -0.268   0.7889    
+#&gt; educ         0.22161    0.04111   5.390 9.49e-08 ***
+#&gt; huswage      0.08056    0.04248   1.897   0.0583 .  
+#&gt; exper        0.33340    0.10585   3.150   0.0017 ** 
+#&gt; exper_2     -0.18822    0.09925  -1.896   0.0583 .  
+#&gt; Multiple R-Squared:0.1642,   Adjusted R-Squared:0.1523
+#&gt;    Error terms:
+#&gt;               Estimate Std. Error t value Pr(&gt;|t|)
+#&gt; invMillsRatio -0.02089    0.15408  -0.136    0.892
+#&gt; sigma          0.66058         NA      NA       NA
+#&gt; rho           -0.03163         NA      NA       NA
+#&gt; --------------------------------------------
+
+## maximum likelihood estimator
+ml_fit &lt;- heckit(
+  selection = lfp ~ age + educ + hushrs + husage + huswage + kids5,
+  outcome = log(wage) ~ age + educ + huswage + exper + exper_2,
+  method = &quot;ml&quot;,
+  data = Mroz87_new
+)
+
+summary(ml_fit)
+#&gt; --------------------------------------------
+#&gt; Tobit 2 model (sample selection model)
+#&gt; Maximum Likelihood estimation
+#&gt; Newton-Raphson maximisation, 2 iterations
+#&gt; Return code 8: successive function values within relative tolerance limit (reltol)
+#&gt; Log-Likelihood: -882.0286 
+#&gt; 753 observations (325 censored and 428 observed)
+#&gt; 15 free parameters (df = 738)
+#&gt; Probit selection equation:
+#&gt;             Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; (Intercept)  0.18643    0.04857   3.838 0.000135 ***
+#&gt; age         -0.18025    0.10614  -1.698 0.089878 .  
+#&gt; educ         0.36768    0.05488   6.700 4.14e-11 ***
+#&gt; hushrs      -0.19376    0.05097  -3.801 0.000156 ***
+#&gt; husage      -0.11919    0.10752  -1.109 0.267978    
+#&gt; huswage     -0.23891    0.05658  -4.223 2.71e-05 ***
+#&gt; kids5       -0.48083    0.06040  -7.961 6.44e-15 ***
+#&gt; Outcome equation:
+#&gt;             Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; (Intercept)  1.11200    0.10108  11.001  &lt; 2e-16 ***
+#&gt; age         -0.01142    0.04148  -0.275  0.78320    
+#&gt; educ         0.22207    0.04048   5.485 5.67e-08 ***
+#&gt; huswage      0.08033    0.04232   1.898  0.05806 .  
+#&gt; exper        0.33360    0.10581   3.153  0.00168 ** 
+#&gt; exper_2     -0.18835    0.09923  -1.898  0.05807 .  
+#&gt;    Error terms:
+#&gt;       Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; sigma  0.66053    0.02267  29.139   &lt;2e-16 ***
+#&gt; rho   -0.02697    0.22170  -0.122    0.903    
+#&gt; ---
+#&gt; Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+#&gt; --------------------------------------------</code></pre>
+</div>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessionInfo()
+#&gt; R version 4.0.2 (2020-06-22)
+#&gt; Platform: x86_64-pc-linux-gnu (64-bit)
+#&gt; Running under: Ubuntu 18.04.5 LTS
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.7.1
+#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.7.1
+#&gt; 
+#&gt; locale:
+#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+#&gt;  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+#&gt;  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+#&gt;  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+#&gt;  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     
+#&gt; 
+#&gt; other attached packages:
+#&gt; [1] sampleSelection_1.2-12 maxLik_1.4-6           miscTools_0.6-26      
+#&gt; [4] bayesplot_1.8.0        rstan_2.21.2           ggplot2_3.3.3         
+#&gt; [7] StanHeaders_2.21.0-7  
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;  [1] sass_0.3.1         splines_4.0.2      VGAM_1.1-5         jsonlite_1.7.2    
+#&gt;  [5] carData_3.0-4      bslib_0.2.4        RcppParallel_5.0.2 Formula_1.2-4     
+#&gt;  [9] assertthat_0.2.1   highr_0.8          stats4_4.0.2       cellranger_1.1.0  
+#&gt; [13] yaml_2.2.1         pillar_1.4.7       lattice_0.20-41    glue_1.4.2        
+#&gt; [17] digest_0.6.27      colorspace_2.0-0   sandwich_3.0-0     htmltools_0.5.1.1 
+#&gt; [21] Matrix_1.2-18      plyr_1.8.6         pkgconfig_2.0.3    haven_2.3.1       
+#&gt; [25] bookdown_0.21      purrr_0.3.4        mvtnorm_1.1-1      scales_1.1.1      
+#&gt; [29] processx_3.4.5     openxlsx_4.2.3     rio_0.5.16         tibble_3.0.6      
+#&gt; [33] generics_0.1.0     farver_2.0.3       car_3.0-10         ellipsis_0.3.1    
+#&gt; [37] withr_2.4.1        hexbin_1.28.2      cli_2.3.0          readxl_1.3.1      
+#&gt; [41] magrittr_2.0.1     crayon_1.4.1       evaluate_0.14      ps_1.5.0          
+#&gt; [45] MASS_7.3-52        forcats_0.5.1      foreign_0.8-79     pkgbuild_1.2.0    
+#&gt; [49] blogdown_1.1.7     tools_4.0.2        loo_2.4.1          data.table_1.13.6 
+#&gt; [53] prettyunits_1.1.1  hms_1.0.0          lifecycle_0.2.0    matrixStats_0.58.0
+#&gt; [57] stringr_1.4.0      V8_3.4.0           munsell_0.5.0      zip_2.1.1         
+#&gt; [61] systemfit_1.1-24   callr_3.5.1        compiler_4.0.2     jquerylib_0.1.3   
+#&gt; [65] rlang_0.4.10       grid_4.0.2         ggridges_0.5.3     labeling_0.4.2    
+#&gt; [69] rmarkdown_2.6.6    gtable_0.3.0       codetools_0.2-16   abind_1.4-5       
+#&gt; [73] inline_0.3.17      DBI_1.1.1          curl_4.3           reshape2_1.4.4    
+#&gt; [77] R6_2.5.0           gridExtra_2.3      zoo_1.8-8          knitr_1.31        
+#&gt; [81] dplyr_1.0.4        stringi_1.5.3      parallel_4.0.2     Rcpp_1.0.6        
+#&gt; [85] vctrs_0.3.6        lmtest_0.9-38      tidyselect_1.1.0   xfun_0.21</code></pre>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references">
+<div id="ref-H79">
+<p>Heckman, J. 1979. “Sample Selection Bias as a Specification Error.” <em>Econometrica</em> 47(1): 153–61. <a href="https://doi.org/10.2307/1912352">https://doi.org/10.2307/1912352</a>.</p>
+</div>
+<div id="ref-M87">
+<p>Mroz, T. 1987. “The Sensitivity of an Empirical Model of Married Women’s Hours of Work to Economic and Statistical Assumptions.” <em>Econometrica</em> 55(4): 765–99. <a href="https://doi.org/10.2307/1911029">https://doi.org/10.2307/1911029</a>.</p>
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>correct standard errors and confidence intervals could be obtained using resampling techniques, such as <a href="https://en.wikipedia.org/wiki/Bootstrapping_(statistics)">bootstrapping</a><a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>this should be around half of the <span class="math inline">\(Y_i\)</span>’s, since <span class="math inline">\(\sum_i \mathbb{E}[D_i] = N /2\)</span> due to the way the simulated data is generated<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>by this we mean convergence in distribution to degenerate distributions located at the target parameters<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>the normalization is done with respect to all available observations, and <em>not</em> only the observations with <code>lfp &gt; 0</code><a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
