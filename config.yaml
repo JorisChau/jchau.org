@@ -1,5 +1,5 @@
 title: A Random Walk
-baseurl: /
+baseurl: https://jchau.org/
 copyright: ''
 enableGitInfo: no
 defaultContentLanguage: en
@@ -19,6 +19,7 @@ ignoreFiles:
   - \.Rmarkdown$
   - _cache$
 permalinks:
+  post: /:year/:month/:day/:slug/
   authors: /author/:slug/
   categories: /category/:slug/
   publication_types: /publication-type/:slug/

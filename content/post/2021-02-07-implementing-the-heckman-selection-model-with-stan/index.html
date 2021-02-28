@@ -6,6 +6,7 @@ slug: fitting-the-heckman-selection-model-with-stan-and-r
 categories:
   - Stan
   - R
+  - R-bloggers
 tags:
   - Heckman selection model
   - Stan
@@ -223,15 +224,15 @@ model_fit &lt;- sampling(
 #&gt; Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 1.32508 seconds (Warm-up)
-#&gt; Chain 1:                1.31815 seconds (Sampling)
-#&gt; Chain 1:                2.64323 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 1.54186 seconds (Warm-up)
+#&gt; Chain 1:                1.50615 seconds (Sampling)
+#&gt; Chain 1:                3.048 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 2).
 #&gt; Chain 2: 
-#&gt; Chain 2: Gradient evaluation took 0.000109 seconds
-#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.09 seconds.
+#&gt; Chain 2: Gradient evaluation took 0.000137 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.37 seconds.
 #&gt; Chain 2: Adjust your expectations accordingly!
 #&gt; Chain 2: 
 #&gt; Chain 2: 
@@ -248,15 +249,15 @@ model_fit &lt;- sampling(
 #&gt; Chain 2: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 1.35879 seconds (Warm-up)
-#&gt; Chain 2:                1.1393 seconds (Sampling)
-#&gt; Chain 2:                2.49809 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 1.56743 seconds (Warm-up)
+#&gt; Chain 2:                1.29852 seconds (Sampling)
+#&gt; Chain 2:                2.86594 seconds (Total)
 #&gt; Chain 2: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 3).
 #&gt; Chain 3: 
-#&gt; Chain 3: Gradient evaluation took 0.000115 seconds
-#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 1.15 seconds.
+#&gt; Chain 3: Gradient evaluation took 0.000136 seconds
+#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 1.36 seconds.
 #&gt; Chain 3: Adjust your expectations accordingly!
 #&gt; Chain 3: 
 #&gt; Chain 3: 
@@ -273,15 +274,15 @@ model_fit &lt;- sampling(
 #&gt; Chain 3: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 3: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 3: 
-#&gt; Chain 3:  Elapsed Time: 1.41894 seconds (Warm-up)
-#&gt; Chain 3:                1.38178 seconds (Sampling)
-#&gt; Chain 3:                2.80072 seconds (Total)
+#&gt; Chain 3:  Elapsed Time: 1.60486 seconds (Warm-up)
+#&gt; Chain 3:                1.58568 seconds (Sampling)
+#&gt; Chain 3:                3.19054 seconds (Total)
 #&gt; Chain 3: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 4).
 #&gt; Chain 4: 
-#&gt; Chain 4: Gradient evaluation took 0.000114 seconds
-#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 1.14 seconds.
+#&gt; Chain 4: Gradient evaluation took 0.00013 seconds
+#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 1.3 seconds.
 #&gt; Chain 4: Adjust your expectations accordingly!
 #&gt; Chain 4: 
 #&gt; Chain 4: 
@@ -298,9 +299,9 @@ model_fit &lt;- sampling(
 #&gt; Chain 4: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 4: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 4: 
-#&gt; Chain 4:  Elapsed Time: 1.31318 seconds (Warm-up)
-#&gt; Chain 4:                1.37497 seconds (Sampling)
-#&gt; Chain 4:                2.68815 seconds (Total)
+#&gt; Chain 4:  Elapsed Time: 1.50885 seconds (Warm-up)
+#&gt; Chain 4:                1.60749 seconds (Sampling)
+#&gt; Chain 4:                3.11634 seconds (Total)
 #&gt; Chain 4:
 
 model_fit
@@ -325,7 +326,7 @@ model_fit
 #&gt; sigma_e     1
 #&gt; lp__        1
 #&gt; 
-#&gt; Samples were drawn using NUTS(diag_e) at Sat Feb 20 11:56:08 2021.
+#&gt; Samples were drawn using NUTS(diag_e) at Sun Feb 28 13:46:34 2021.
 #&gt; For each parameter, n_eff is a crude measure of effective sample size,
 #&gt; and Rhat is the potential scale reduction factor on split chains (at 
 #&gt; convergence, Rhat=1).</code></pre>
@@ -385,8 +386,8 @@ model_fit &lt;- rstan::sampling(
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 1).
 #&gt; Chain 1: 
-#&gt; Chain 1: Gradient evaluation took 0.000522 seconds
-#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 5.22 seconds.
+#&gt; Chain 1: Gradient evaluation took 0.00024 seconds
+#&gt; Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 2.4 seconds.
 #&gt; Chain 1: Adjust your expectations accordingly!
 #&gt; Chain 1: 
 #&gt; Chain 1: 
@@ -403,15 +404,15 @@ model_fit &lt;- rstan::sampling(
 #&gt; Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 1: 
-#&gt; Chain 1:  Elapsed Time: 4.1232 seconds (Warm-up)
-#&gt; Chain 1:                4.35477 seconds (Sampling)
-#&gt; Chain 1:                8.47797 seconds (Total)
+#&gt; Chain 1:  Elapsed Time: 4.85542 seconds (Warm-up)
+#&gt; Chain 1:                5.21083 seconds (Sampling)
+#&gt; Chain 1:                10.0662 seconds (Total)
 #&gt; Chain 1: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 2).
 #&gt; Chain 2: 
-#&gt; Chain 2: Gradient evaluation took 0.000182 seconds
-#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.82 seconds.
+#&gt; Chain 2: Gradient evaluation took 0.000227 seconds
+#&gt; Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 2.27 seconds.
 #&gt; Chain 2: Adjust your expectations accordingly!
 #&gt; Chain 2: 
 #&gt; Chain 2: 
@@ -428,15 +429,15 @@ model_fit &lt;- rstan::sampling(
 #&gt; Chain 2: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 2: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 2: 
-#&gt; Chain 2:  Elapsed Time: 3.58064 seconds (Warm-up)
-#&gt; Chain 2:                4.10918 seconds (Sampling)
-#&gt; Chain 2:                7.68983 seconds (Total)
+#&gt; Chain 2:  Elapsed Time: 4.23835 seconds (Warm-up)
+#&gt; Chain 2:                4.85115 seconds (Sampling)
+#&gt; Chain 2:                9.0895 seconds (Total)
 #&gt; Chain 2: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 3).
 #&gt; Chain 3: 
-#&gt; Chain 3: Gradient evaluation took 0.000329 seconds
-#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 3.29 seconds.
+#&gt; Chain 3: Gradient evaluation took 0.000234 seconds
+#&gt; Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 2.34 seconds.
 #&gt; Chain 3: Adjust your expectations accordingly!
 #&gt; Chain 3: 
 #&gt; Chain 3: 
@@ -453,15 +454,15 @@ model_fit &lt;- rstan::sampling(
 #&gt; Chain 3: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 3: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 3: 
-#&gt; Chain 3:  Elapsed Time: 3.6842 seconds (Warm-up)
-#&gt; Chain 3:                4.06421 seconds (Sampling)
-#&gt; Chain 3:                7.74841 seconds (Total)
+#&gt; Chain 3:  Elapsed Time: 4.35499 seconds (Warm-up)
+#&gt; Chain 3:                4.68861 seconds (Sampling)
+#&gt; Chain 3:                9.0436 seconds (Total)
 #&gt; Chain 3: 
 #&gt; 
 #&gt; SAMPLING FOR MODEL &#39;heckman&#39; NOW (CHAIN 4).
 #&gt; Chain 4: 
-#&gt; Chain 4: Gradient evaluation took 0.000197 seconds
-#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 1.97 seconds.
+#&gt; Chain 4: Gradient evaluation took 0.000213 seconds
+#&gt; Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 2.13 seconds.
 #&gt; Chain 4: Adjust your expectations accordingly!
 #&gt; Chain 4: 
 #&gt; Chain 4: 
@@ -478,9 +479,9 @@ model_fit &lt;- rstan::sampling(
 #&gt; Chain 4: Iteration: 1800 / 2000 [ 90%]  (Sampling)
 #&gt; Chain 4: Iteration: 2000 / 2000 [100%]  (Sampling)
 #&gt; Chain 4: 
-#&gt; Chain 4:  Elapsed Time: 3.7755 seconds (Warm-up)
-#&gt; Chain 4:                4.42581 seconds (Sampling)
-#&gt; Chain 4:                8.20131 seconds (Total)
+#&gt; Chain 4:  Elapsed Time: 4.59806 seconds (Warm-up)
+#&gt; Chain 4:                5.46341 seconds (Sampling)
+#&gt; Chain 4:                10.0615 seconds (Total)
 #&gt; Chain 4:
 
 model_fit
@@ -523,7 +524,7 @@ model_fit
 #&gt; sigma_e     1
 #&gt; lp__        1
 #&gt; 
-#&gt; Samples were drawn using NUTS(diag_e) at Sat Feb 20 11:56:48 2021.
+#&gt; Samples were drawn using NUTS(diag_e) at Sun Feb 28 13:47:20 2021.
 #&gt; For each parameter, n_eff is a crude measure of effective sample size,
 #&gt; and Rhat is the potential scale reduction factor on split chains (at 
 #&gt; convergence, Rhat=1).</code></pre>

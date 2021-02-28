@@ -6,6 +6,7 @@ slug: fitting-the-heckman-selection-model-with-stan-and-r
 categories:
   - Stan
   - R
+  - R-bloggers
 tags:
   - Heckman selection model
   - Stan
