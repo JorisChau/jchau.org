@@ -1,0 +1,682 @@
+---
+title: Estimating reaction kinetics with Stan and R
+author: Joris Chau
+date: '2021-02-28'
+slug: estimating-reaction-kinetics-with-stan-and-r
+categories:
+  - Stan
+  - R
+tags:
+  - Stan
+  - R
+  - ODE
+  - reaction kinetics
+  - rate equation
+  - chemistry
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-02-28T17:19:39+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: true
+projects: []
+references:
+- id: KF06
+  title: "Solid-state kinetic models: basics and mathematical fundamentals"
+  URL: "https://doi.org/10.1021/jp062746a"
+  author:
+    - family: Khawam
+      given: A.
+    - family: Flanagan
+      given: D.R.
+  container-title: "Journal of Physical Chemistry B"
+  volume: 110(45)
+  page: 17315-17328
+  type: article-journal
+  issued:
+    year: 2006
+---
+
+<script src="{{< blogdown/postref >}}index_files/kePrint/kePrint.js"></script>
+<link href="{{< blogdown/postref >}}index_files/lightable/lightable.css" rel="stylesheet" />
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In chemical kinetics, the rate of a solid-state reaction is generally modeled by a reaction rate law (or rate equation) of the form:</p>
+<p><span class="math display">\[
+\frac{d\alpha}{dt} \ = \ k \cdot f(\alpha)\ = \ Ae^{-E_a/RT} \cdot f(\alpha)
+\]</span></p>
+<p>Here, <span class="math inline">\(\alpha(t) \in [0,1]\)</span> is the reaction’s conversion fraction in time and <span class="math inline">\(f(\alpha)\)</span> is the <strong>reaction model</strong>. The reaction rate constant <span class="math inline">\(k = Ae^{E_a / RT}\)</span> is represented by an <a href="https://en.wikipedia.org/wiki/Arrhenius_equation">Arrhenius equation</a> based on the absolute temperature <span class="math inline">\(T\)</span>, model parameters <span class="math inline">\(A\)</span> (pre-exponential factor) and <span class="math inline">\(E_a\)</span> (activation energy), and ideal gas constant <span class="math inline">\(R\)</span>. The reaction model <span class="math inline">\(f(\alpha)\)</span> can take on many different forms based on mechanistic considerations or empirical observation. The following table provides a list of common reaction models for <span class="math inline">\(f(\alpha)\)</span> taken from <span class="citation">(Khawam and Flanagan <a href="#ref-KF06" role="doc-biblioref">2006</a>)</span> describing various types of reaction kinetics:</p>
+<table class="table" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:left;">
+Reaction model <span class="math inline">\(f(\alpha)\)</span>
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+Power-law (P2)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(2 \alpha^{1/2}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Power-law (P3)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(3 \alpha^{2/3}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Power-law (P4)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(4 \alpha^{3/4}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Avrami-Erofeyev (A2)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(2(1 - \alpha)[-\ln(1 - \alpha)]^{1/2}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Avrami-Erofeyev (A3)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(3(1-\alpha)[-\ln(1-\alpha)]^{2/3}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Avrami-Erofeyev (A4)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(4(1-\alpha)[-\ln(1-\alpha)]^{3/4}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Contracting area (R2)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(2(1-\alpha)^{1/2}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Contracting volume (R3)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(3(1-\alpha)^{2/3}\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+1-D Difussion (D1)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(1/(2\alpha)\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+2-D Diffusion (D2)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(-[1/\ln(1-\alpha)]\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+3-D Diffusion-Jander (D3)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\([3(1-\alpha)^{2/3}]/[2(1-(1-\alpha)^{1/3})]\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Ginstling-Brounshtein (D4)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(3/[2((1-\alpha)^{-1/3}-1)]\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Zero-order (P1/R1/F0)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(1\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+First-order (F1)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\((1-\alpha)\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Second-order (F2)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\((1-\alpha)^2\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Third-order (F3)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\((1-\alpha)^3\)</span>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Exponential (E1)
+</td>
+<td style="text-align:left;">
+<span class="math inline">\(\alpha\)</span>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Using <code>deSolve::ode()</code>, we can integrate the kinetic trends for all listed reaction models <span class="math inline">\(f(\alpha)\)</span> with a fixed rate constant <span class="math inline">\(k\)</span>:</p>
+<pre class="r"><code>library(deSolve)
+
+alpha &lt;- ode(
+  y = c(P2 = 0, P3 = 0, P4 = 0, A2 = 0, A3 = 0, A4 = 0, R2 = 0, R3 = 0, D1 = 0, 
+        D2 = 0, D3 = 0, D4 = 0, F0 = 0, F1 = 0, F2 = 0, F3 = 0, E1 = 1) + 1E-6,
+  times = (1:100)/100,
+  func = function(t, y, parms) {
+    list(
+      dadt = parms[&quot;k&quot;] * c(
+        P2 = 2 * sqrt(y[1]),
+        P3 = 3 * y[2]^(2/3),
+        P4 = 4 * y[3]^(3/4),
+        A2 = 2 * (1 - y[4]) * sqrt(-log(1 - y[4])),
+        A3 = 3 * (1 - y[5]) * (-log(1 - y[5]))^(2/3),
+        A4 = 4 * (1 - y[6]) * (-log(1 - y[6]))^(3/4),
+        R2 = 2 * sqrt(1 - y[7]),
+        R3 = 3 * (1 - y[8])^(2/3),
+        D1 = 1 / (2 * y[9]),
+        D2 = -1 / log(1 - y[10]),
+        D3 = 3 * (1 - y[11])^(2/3) / (2 * (1 - (1 - y[11])^(1/3))),
+        D4 = 3 / (2 * (1 - y[12])^(-1/3) - 1),
+        F0 = 1,
+        F1 = 1 - y[14],
+        F2 = (1 - y[15])^2,
+        F3 = (1 - y[16])^3,
+        E1 = y[17]
+      )
+    )
+  },
+  parms = c(k = 0.5)
+)
+
+head(alpha)</code></pre>
+<pre><code>#&gt;      time       P2         P3           P4           A2           A3
+#&gt; [1,] 0.01 0.000001 1.0000e-06 1.000000e-06 1.000000e-06 1.000000e-06
+#&gt; [2,] 0.02 0.000036 3.3750e-06 1.798892e-06 3.599936e-05 3.374995e-06
+#&gt; [3,] 0.03 0.000121 8.0000e-06 3.001402e-06 1.209927e-04 7.999970e-06
+#&gt; [4,] 0.04 0.000256 1.5625e-05 4.724899e-06 2.559672e-04 1.562488e-05
+#&gt; [5,] 0.05 0.000441 2.7000e-05 7.101751e-06 4.409028e-04 2.699964e-05
+#&gt; [6,] 0.06 0.000676 4.2875e-05 1.027933e-05 6.757716e-04 4.287409e-05
+#&gt;                A4          R2         R3         D1         D2        D3
+#&gt; [1,] 1.000000e-06 0.000001000 0.00000100 0.00000100 0.00000100 0.0000010
+#&gt; [2,] 1.798891e-06 0.009975995 0.01492612 0.07071117 0.09831976 0.1974870
+#&gt; [3,] 3.001399e-06 0.019900990 0.02970198 0.10000072 0.13804818 0.2710020
+#&gt; [4,] 4.724890e-06 0.029775985 0.04432935 0.12247531 0.16813049 0.3242628
+#&gt; [5,] 7.101728e-06 0.039600980 0.05880896 0.14142228 0.19321710 0.3670950
+#&gt; [6,] 1.027928e-05 0.049375975 0.07314158 0.15811481 0.21510937 0.4032969
+#&gt;              D4       F0          F1          F2          F3       E1
+#&gt; [1,] 0.00000100 0.000001 0.000001000 0.000001000 0.000001000 1.000001
+#&gt; [2,] 0.01492624 0.005001 0.004988516 0.004976114 0.004963795 1.005014
+#&gt; [3,] 0.02970296 0.010001 0.009951156 0.009901970 0.009853428 1.010051
+#&gt; [4,] 0.04433262 0.015001 0.014889046 0.014779296 0.014671678 1.015114
+#&gt; [5,] 0.05881665 0.020001 0.019802307 0.019608804 0.019420267 1.020202
+#&gt; [6,] 0.07315644 0.025001 0.024691063 0.024391196 0.024100856 1.025316</code></pre>
+<p>We plot all integrated kinetic trends in a single display by rescaling the trends <span class="math inline">\(\alpha(t)\)</span> to the unit interval. This provides a quick overview of the different types of reaction kinetics represented by the reaction models <span class="math inline">\(f(\alpha)\)</span>.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-3-1.png" width="864" style="display: block; margin: auto;" />
+To get a more detailed view of the available types of kinetic behavior, we integrate the same kinetic trends by also varying the rate constant <span class="math inline">\(k\)</span>. The reaction models are grouped by the same categories as described in <span class="citation">(Khawam and Flanagan <a href="#ref-KF06" role="doc-biblioref">2006</a>, Table 1)</span>.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/anim.gif" /></p>
+<p>Note that most of the reaction models <span class="math inline">\(f(\alpha)\)</span> shown here are different representations of the following general form:</p>
+<p><span class="math display">\[
+f(\alpha) \ \propto \ \alpha^m(1 - \alpha)^n(-\ln(1 - \alpha))^p
+\]</span>
+By varying the constants <span class="math inline">\(m\)</span>, <span class="math inline">\(n\)</span>, and <span class="math inline">\(p\)</span>, many different types of reaction kinetics behavior can be generated and modeled.</p>
+<div id="statistical-modeling" class="section level2">
+<h2>Statistical modeling</h2>
+<p>The aim of this post is to demonstrate the use of <a href="https://mc-stan.org/">Stan</a> in the context of estimation and prediction of reaction kinetics based on observed data. In practice, the go-to approach to fit any of the above reaction models to observed data is likely least squares (or maximum likelihood) optimization, as this is the most convenient to implement in most mathematical programming languages. The least squares model fits allow us to quickly assess which reaction models provide reasonable fits to the data, but statistical inference (e.g. construction of confidence regions) for the estimated kinetic trends is not always straightforward due to the nonlinear nature (or missing closed-form solutions) of the integrated reaction models.</p>
+<p>In the following demonstrating examples, we benefit from Stan’s ODE solvers to assess the complete posterior distributions of the reaction model parameters and integrated reaction trends. Bayesian inference directly provides us with valuable information on the uncertainty in the estimated kinetic trends. In addition, because of Stan’s flexible and efficient modeling interface, it is possible to build more complex statistical models involving numerically integrated reaction models and/or (highly) correlated model parameters.</p>
+<p><strong>Note</strong>: the Stan programs in this post are compiled with <code>cmdstanr</code> based on CmdStan <strong>&gt;= 2.24</strong>. Stan 2.24 introduces new <code>ode_***</code> functions that avoid packing and unpacking schemes required by the now deprecated <code>integrate_ode_***</code> functions in previous Stan versions<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+</div>
+</div>
+<div id="example-1-error-propagation" class="section level1">
+<h1>Example 1: Error propagation</h1>
+<div id="model-scenario" class="section level2">
+<h2>Model scenario</h2>
+<p>Consider a fictional scenario where <span class="math inline">\(\alpha(t)\)</span> is known to follow a first-order reaction model:</p>
+<p><span class="math display">\[
+\frac{d\alpha}{dt} \ = \ k \cdot f(\alpha) \ = \ Ae^{-E_a/RT} \cdot (1 - \alpha)
+\]</span>
+Instead of observing <span class="math inline">\(\alpha(t)\)</span> directly, we observe a set of normally distributed rate constants <span class="math inline">\(k_1, \ldots, k_S\)</span> centered around <span class="math inline">\(k = A e^{-E_a/RT}\)</span>. That is,</p>
+<p><span class="math display">\[
+k_s | A, E_a, \sigma \overset{\text{iid}}{\sim} N(A e^{-E_a/RT}, \sigma^2) \quad \text{for} \ \ s = 1, \ldots, S
+\]</span></p>
+<p>The aim of this exercise is to predict the integrated trend <span class="math inline">\(\alpha(t)\)</span> based on the Arrhenius model fitted to the observations <span class="math inline">\(k_1, \ldots, k_S\)</span>.</p>
+<p><strong>Note</strong>: the integrated first-order reaction model has a simple closed-form solution,</p>
+<p><span class="math display">\[
+\alpha(t) \ = \ 1 - e^{-kt}
+\]</span>
+For the sake of generality, we solve for <span class="math inline">\(\alpha(t)\)</span> based on its differential form, as not all reaction models listed above have such straightforward closed-form solutions. Moreover, in terms of model sampling it should make no real difference for Stan<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a> whether <span class="math inline">\(\alpha(t)\)</span> is represented by its integrated form or integrated from its differential form using one of Stan’s ODE solvers.</p>
+<div id="simulated-data" class="section level3">
+<h3>Simulated data</h3>
+<p>A set of observed i.i.d. rate constants <span class="math inline">\(k_1,\ldots, k_S\)</span> is simulated with 8 observations at each of three absolute temperatures <span class="math inline">\(T = \{273.15, 293.15, 313.15\}\)</span>. The model parameters <span class="math inline">\(A\)</span> and <span class="math inline">\(E_a\)</span> in the Arrhenius equation are specified as <span class="math inline">\(A = 1 \times 10^{15}\ \text{min}^{-1}\)</span> and <span class="math inline">\(E_a = 80\ \text{kJ/mol}\)</span> identical to <span class="citation">(Khawam and Flanagan <a href="#ref-KF06" role="doc-biblioref">2006</a>, Figure 2)</span> and the noise variance is set to <span class="math inline">\(\sigma = 2\)</span>.</p>
+<pre class="r"><code>## Arrhenius model parameters
+set.seed(1)
+pars &lt;- list(log_A = log(1E15), Ea = 80, sigma = 2)
+temp_K &lt;- rep(c(283.15, 293.15, 313.15), each = 8)
+
+## simulated observations
+k_obs &lt;- with(
+  pars,
+  data.frame(
+    temp_K = temp_K,
+    k = rnorm(n = length(temp_K), mean = exp(log_A - Ea / (0.00831446 * temp_K)), sd = sigma)
+  )
+)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-5-1.png" width="100%" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="maximum-likelihood" class="section level2">
+<h2>Maximum likelihood</h2>
+<p>Firstly, given the observations <span class="math inline">\(k_1,\ldots,k_S\)</span>, we can compute maximum likelihood estimates <span class="math inline">\(\hat{A}\)</span> and <span class="math inline">\(\hat{E}_a\)</span> by fitting the Arrhenius model <span class="math inline">\(k_s \sim N(A e^{-E_a/RT}, \sigma^2)\)</span> as a generalized linear model with Gaussian error distribution and a log-link function:</p>
+<pre class="r"><code>## 1) Arrhenius model fit
+glmfit &lt;- glm(k ~ 1 + I(-1 / (0.0083144 * temp_K)), family = gaussian(link = &quot;log&quot;), data = k_obs)
+summary(glmfit)</code></pre>
+<pre><code>#&gt; 
+#&gt; Call:
+#&gt; glm(formula = k ~ 1 + I(-1/(0.0083144 * temp_K)), family = gaussian(link = &quot;log&quot;), 
+#&gt;     data = k_obs)
+#&gt; 
+#&gt; Deviance Residuals: 
+#&gt;     Min       1Q   Median       3Q      Max  
+#&gt; -4.6222  -0.9366   0.5815   1.1630   3.1075  
+#&gt; 
+#&gt; Coefficients:
+#&gt;                            Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; (Intercept)                  34.221      1.605   21.32 3.50e-16 ***
+#&gt; I(-1/(0.0083144 * temp_K))   79.143      4.174   18.96 4.06e-15 ***
+#&gt; ---
+#&gt; Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+#&gt; 
+#&gt; (Dispersion parameter for gaussian family taken to be 3.881107)
+#&gt; 
+#&gt;     Null deviance: 9536.172  on 23  degrees of freedom
+#&gt; Residual deviance:   85.384  on 22  degrees of freedom
+#&gt; AIC: 104.57
+#&gt; 
+#&gt; Number of Fisher Scoring iterations: 5</code></pre>
+<p>Next, by evaluating the fitted GLM at a specific temperature (e.g. <span class="math inline">\(T = 298.15 K\)</span>), we obtain a point estimate <span class="math inline">\(\hat{k}(T)\)</span>, which can be plugged into the reaction model to predict the reaction kinetics at the specified temperature:</p>
+<pre class="r"><code>## 2) evaluate k-hat at room temperature
+khat &lt;- predict(glmfit, newdata = list(temp_K = 298.15), type = &quot;response&quot;)
+khat</code></pre>
+<pre><code>#&gt;        1 
+#&gt; 9.927213</code></pre>
+<pre class="r"><code>## 3) integrate alpha(t) by plugging in k-hat
+alpha &lt;- ode(
+  y = c(alpha = 0),
+  times = (0:100)/100,
+  func = function(t, y, parms) list(khat * (1 - y))
+)
+
+head(alpha)</code></pre>
+<pre><code>#&gt;      time      alpha
+#&gt; [1,] 0.00 0.00000000
+#&gt; [2,] 0.01 0.09450281
+#&gt; [3,] 0.02 0.18007554
+#&gt; [4,] 0.03 0.25756128
+#&gt; [5,] 0.04 0.32772478
+#&gt; [6,] 0.05 0.39125752</code></pre>
+<p>The following plot displays three such individual trajectories evaluated at three different temperatures:</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-8-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Here the integrated trajectories are evaluated as deterministic curves conditional on the point estimates <span class="math inline">\(\hat{k}(T)\)</span>. Propagating the estimation error in <span class="math inline">\(\hat{k}(T)\)</span> to the solution of the ODE is a not a trivial task and probably requires the use of computationally intensive Monte Carlo simulation or other (re)sampling techniques, such as <em>bootstrapping</em>.</p>
+</div>
+<div id="mcmc-sampling" class="section level2">
+<h2>MCMC sampling</h2>
+<p>A sensible solution to the previous issue is to simulate the posterior distribution of the integrated trajectories by means of Bayesian MCMC sampling. In Stan, we can combine both the initial generalized linear model fit and the integration of the reaction model making use of Stan’s ODE solvers. Since the numerical integration of the ODE is not part of the model itself, it is performed in the <code>generated quantities</code> block of the Stan program. Using the new <a href="https://mc-stan.org/docs/2_26/functions-reference/functions-ode-solver.html"><code>ode_rk45</code></a> function available in Stan &gt;= 2.24, the Stan model can be encoded as follows:</p>
+<pre class="stan"><code>// ex1.stan (Stan &gt;= 2.24)
+functions {
+  // derivative function
+  vector deriv(real time, vector y, real k) {
+    vector[1] dydt = k * (1 - y);
+    return dydt;
+  }
+}
+data {
+  // rate estimation
+  int&lt;lower = 1&gt; n;
+  vector[n] k_obs;  // observed rate constants (1/min)
+  vector[n] temp_K; // observed temperatures (K)
+  // ode integration
+  int&lt;lower = 1&gt; n1;
+  vector[1] y0;
+  real times[n1];   // evaluated time points (min)
+  real temp_K_new;  // evaluated temperature (K) 
+}
+parameters {
+  real lnA;                 // pre-exponential factor
+  real&lt;lower = 0&gt; Ea;       // activation energy
+  real&lt;lower = 1E-6&gt; sigma; // error standard deviation                  
+}
+model {
+  // (naive) priors
+  lnA ~ normal(25, 10);
+  Ea ~ normal(50, 10);
+  sigma ~ normal(0, 1);
+  // likelihood
+  k_obs ~ normal(exp(lnA - Ea ./ (0.0083144 * temp_K)), sigma); 
+}
+generated quantities {
+  vector[1] y_new[n1];
+  // predicted rate constant
+  real k_hat = exp(lnA - Ea / (0.0083144 * temp_K_new));
+  // integrated reaction model
+  y_new = ode_rk45(deriv, y0, 0.0, times, k_hat); 
+}
+</code></pre>
+<p>The GLM likelihood is specified in the <code>model</code> block and we assign (<em>weakly informative</em>) normal priors for the model parameters: <span class="math inline">\(\ln(A)\)</span> (natural logarithm of the pre-exponential factor), <span class="math inline">\(E_a\)</span> (activation energy) and <span class="math inline">\(\sigma\)</span> (error standard deviation). The <code>generated quantities</code> block contains the instructions to integrate a new reaction trend at each sampling iteration based on the the posterior predicted rate constant <span class="math inline">\(\hat{k}(T)\)</span> and the derivative function defined in the <code>functions</code> block.</p>
+<p>The Stan model compilation and sampling is executed with CmdStan (&gt;=2.24) through the <code>cmdstanr</code>-package. First, we compile the model with <code>cmdstan_model()</code>, second we call the <code>sample()</code> method of the generated R6-object (<code>ex1_model</code>) to sample a total of 4000 posterior predicted reaction trends:</p>
+<pre class="r"><code>library(cmdstanr)
+
+## 1) compile model
+ex1_model &lt;- cmdstan_model(&quot;ex1.stan&quot;)
+## 2) sample reaction trends
+ex1_fit &lt;- ex1_model$sample(
+  seed = 1,
+  data = list(
+    n = nrow(k_obs),       
+    k_obs = k_obs$k,       ## observed rate constants
+    temp_K = k_obs$temp_K, ## observed temperatures (K)
+    n1 = 100L,
+    y0 = array(0),             
+    times = (1:100)/100,   ## evaluated times (min)
+    temp_K_new = 298.15    ## evaluated temperature (K)
+  ),
+  chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000
+)</code></pre>
+<pre class="r"><code>## model fit summary
+ex1_fit$cmdstan_summary()</code></pre>
+<pre><code>#&gt; Inference for Stan model: ex1_model
+#&gt; 4 chains: each with iter=(1000,1000,1000,1000); warmup=(0,0,0,0); thin=(1,1,1,1); 4000 iterations saved.
+#&gt; 
+#&gt; Warmup took (1.0, 0.65, 0.85, 1.1) seconds, 3.6 seconds total
+#&gt; Sampling took (1.1, 0.86, 0.96, 1.2) seconds, 4.2 seconds total
+#&gt; 
+#&gt;                    Mean     MCSE   StdDev       5%      50%      95%    N_Eff  N_Eff/s    R_hat
+#&gt; 
+#&gt; lp__                -30  4.1e-02  1.3e+00      -32      -29      -28      931      223      1.0
+#&gt; accept_stat__   9.5e-01  1.4e-03  8.2e-02  7.8e-01  9.8e-01  1.0e+00  3.3e+03  7.8e+02  1.0e+00
+#&gt; stepsize__      7.1e-03  3.3e-04  4.7e-04  6.4e-03  7.3e-03  7.7e-03  2.0e+00  4.8e-01  2.1e+13
+#&gt; treedepth__     6.9e+00  4.2e-02  2.4e+00  2.0e+00  8.0e+00  9.0e+00  3.3e+03  7.8e+02  1.0e+00
+#&gt; n_leapfrog__    3.0e+02  3.9e+00  2.2e+02  3.0e+00  2.6e+02  5.5e+02  3.3e+03  7.8e+02  1.0e+00
+#&gt; divergent__     0.0e+00      nan  0.0e+00  0.0e+00  0.0e+00  0.0e+00      nan      nan      nan
+#&gt; energy__        3.1e+01  5.9e-02  1.8e+00  2.9e+01  3.1e+01  3.4e+01  8.9e+02  2.1e+02  1.0e+00
+#&gt; 
+#&gt; lnA                  33  4.2e-02  1.3e+00       31       33       35      977      234      1.0
+#&gt; Ea                   75  1.1e-01  3.4e+00       70       75       81      977      234      1.0
+#&gt; sigma               1.9  8.0e-03  2.7e-01      1.5      1.9      2.4     1120      268      1.0
+#&gt; y_new[1,1]         0.10  2.0e-04  6.3e-03    0.091     0.10     0.11     1013      242      1.0
+#&gt; y_new[2,1]         0.19  3.6e-04  1.1e-02     0.17     0.19     0.21     1012      242      1.0
+#&gt; y_new[3,1]         0.27  4.8e-04  1.5e-02     0.25     0.27     0.30     1012      242      1.0
+#&gt; y_new[4,1]         0.35  5.8e-04  1.8e-02     0.32     0.35     0.38     1012      242      1.0
+....</code></pre>
+<p>Looking at CmdStan’s sampling diagnostics and summary results, no obvious sampling problems are observed<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>. Also, the posterior distributions of <span class="math inline">\(\log(A)\)</span>, <span class="math inline">\(E_a\)</span> and <span class="math inline">\(\sigma\)</span> all cover the target parameters reasonably well, using a total of <span class="math inline">\(n = 24\)</span> observations to fit the Arrhenius regression model. Error propagation from the estimated rate constants to the reaction model integration is no longer an issue, as the reaction model ODE is solved for each sampled value of <span class="math inline">\(\hat{k}(T)\)</span>.</p>
+<p>Given the sampling results, we can directly assess the prediction uncertainty present in the integrated reaction trends based on fitting the Arrhenius model to the observed rate constants. To illustrate, the following plot displays a (random) subset of 500 individual integrated reaction trends, as well as the posterior medians and 2.5% and 97.5% posterior quantiles <strong>pointwise in time</strong> across all reaction trends (resp. the black solid and dashed lines):</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-12-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="example-2-reaction-model-regression" class="section level1">
+<h1>Example 2: Reaction model regression</h1>
+<div id="model-scenario-1" class="section level2">
+<h2>Model scenario</h2>
+<p>In the previous example, the reaction model was not part of the regression model itself, i.e. we only evaluated the reaction model conditional on an estimated rate constant <span class="math inline">\(\hat{k}(T)\)</span>. In this second example, we consider fitting an integrated reaction model directly to observations of multiple replicated reaction trends.</p>
+<p>More precisely, let <span class="math inline">\(\alpha_1(t), \ldots, \alpha_S(t)\)</span> be a collection of replicated reaction processes, subject to the same experimental conditions, where each process is assumed to follow a reaction order model of the form:</p>
+<p><span class="math display">\[
+\frac{d\alpha_s}{dt} \ = \ k_s \cdot f(\alpha_s) \ = \ k_s \cdot (1 - \alpha_s)^m
+\]</span></p>
+<p>The reaction order <span class="math inline">\(m\)</span> is unknown, but is assumed to be the same for all processes <span class="math inline">\(\alpha_1(t), \ldots, \alpha_S(t)\)</span>. The rate constants <span class="math inline">\(k_1, \ldots, k_S\)</span> are also unknown and are assumed to randomly vary across experiments. In particular, we impose a Gaussian (random effects) distribution for the replicated rate constants:</p>
+<p><span class="math display">\[
+k_1,\ldots,k_S\, |\, k, \sigma_u \ \overset{\text{iid}}{\sim} \ N(k, \sigma_u^2)
+\]</span></p>
+<p>Note that modeling the rate constants according to an Arrhenius equation is not necessary in this example, as the temperature covariate is assumed to be fixed and identical for each replicated reaction process.</p>
+<p>In addition to the <em>between-replicate</em> variation introduced by the rate constants <span class="math inline">\(k_1, \ldots, k_S\)</span>, we assume that there is some <em>within-replicate</em> (noise) variation present in the observed reaction process <span class="math inline">\(y_s(t)\)</span>. This noise variation is modeled according to a Beta distribution to ensure that the observed reaction process <span class="math inline">\(y_s(t)\)</span> is always contained within the unit interval:</p>
+<p><span class="math display">\[
+y_s(t)\, | \, \alpha_s(t), \phi \ \sim \ \mathcal{Be}\left(\alpha_s(t) \cdot \phi, (1 - \alpha_s(t)) \cdot \phi\right), \quad \text{for}\ s = 1,\ldots, S
+\]</span>
+The two shape parameters are parameterized in such a way that:</p>
+<p><span class="math display">\[
+\begin{aligned}
+\mathbb{E}[y_s(t)\, |\, \alpha_s(t)] &amp; \ = \ \alpha_s(t) \\
+\text{Var}(y_s(t)\, |\, \alpha_s(t)) &amp; \ = \ \frac{\alpha_s(t) \cdot(1 - \alpha_s(t))}{\phi + 1}
+\end{aligned}
+\]</span></p>
+<p>This means that, conditional on <span class="math inline">\(\alpha_s(t)\)</span>, <span class="math inline">\(y_s(t)\)</span> is centered around <span class="math inline">\(\alpha_s(t)\)</span>, and the noise variance tends to zero whenever <span class="math inline">\(\alpha_s(t)\)</span> is close to zero or one, with <span class="math inline">\(\phi\)</span> serving as a scale parameter for the noise variance.</p>
+<p>Combining the above expressions, for each replicate <span class="math inline">\(s = 1,\ldots, S\)</span>, the generative model for the observed reaction process <span class="math inline">\(y_s(t)\)</span> with model parameters <span class="math inline">\(k\)</span>, <span class="math inline">\(m\)</span>, <span class="math inline">\(\sigma_u\)</span> and <span class="math inline">\(\phi\)</span> is given by:</p>
+<p><span class="math display">\[
+\begin{aligned}
+&amp; y_s(t)\, |\, \alpha_s(t), \phi \ \sim \  \mathcal{Be}\left(\alpha_s(t) \cdot \phi, (1 - \alpha_s(t)) \cdot \phi\right), \\[3mm]
+&amp; \begin{cases}
+k_s\, |\, k, \sigma_u \ \sim \ N(k, \sigma_u^2), \\[2mm]
+\frac{d \alpha_s}{dt} \, \Big|\, k_s,m \ =\ k_s \cdot (1 - \alpha_s(t))^m, \quad \text{with} \ \alpha_s(0) \ =  \ 0 \\[3mm]
+\end{cases}
+\end{aligned}
+\]</span></p>
+<div id="simulated-data-1" class="section level3">
+<h3>Simulated data</h3>
+<p>Based on the generative model above, we generate <span class="math inline">\(S = 10\)</span> replicated second-order reaction trends with model parameters <span class="math inline">\(k = 0.1\  \text{min}^{-1}\)</span>, <span class="math inline">\(m = 2\)</span>, <span class="math inline">\(\sigma_u = 0.05\ \text{min}^{-1}\)</span> and <span class="math inline">\(\phi^{-1} = 0.0025\)</span>, where each replicate is evaluated at the same 10 time points.</p>
+<pre class="r"><code>## model parameters
+set.seed(1)
+S &lt;- 10
+times &lt;- (0:10)*10
+pars &lt;- list(k = 0.1, m = 2, sigma_u = 0.05, phi_inv = 0.0025)
+pars[[&quot;ks&quot;]] &lt;- with(pars, rnorm(S, mean = k, sd = sigma_u))
+
+## helper function to integrate alpha_s(t)
+alpha_s &lt;- function(pars, times, s = 1) {
+  as.data.frame(
+    ode(
+      y = c(alpha = 0),
+      times = times,
+      func = function(t, y, ...) list(pars[[&quot;ks&quot;]][s] * (1 - y)^pars[[&quot;m&quot;]])
+    )
+  )
+}
+
+## generate y_s(t)
+y_obs &lt;- lapply(seq_len(S), function(s) {
+  y_s &lt;- alpha_s(pars, times, s)
+  y_s[[&quot;y&quot;]] &lt;- with(pars, rbeta(nrow(y_s), shape1 = y_s[[&quot;alpha&quot;]] / phi_inv, shape2 = (1 - y_s[[&quot;alpha&quot;]]) / phi_inv))
+  y_s[[&quot;rep&quot;]] &lt;- sprintf(&quot;Replicate %02d&quot;, s)
+  y_s
+})
+
+head(y_obs[[1]])</code></pre>
+<pre><code>#&gt;   time     alpha         y          rep
+#&gt; 1    0 0.0000000 0.0000000 Replicate 01
+#&gt; 2   10 0.4071514 0.4540743 Replicate 01
+#&gt; 3   20 0.5786884 0.5677154 Replicate 01
+#&gt; 4   30 0.6732356 0.6897440 Replicate 01
+#&gt; 5   40 0.7331251 0.7023899 Replicate 01
+#&gt; 6   50 0.7744618 0.7755208 Replicate 01</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-14-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="nonlinear-least-squares" class="section level2">
+<h2>Nonlinear least squares</h2>
+<p>For a single observed reaction process <span class="math inline">\(y_s(t)\)</span>, we can fit the integrated reaction model <span class="math inline">\(\alpha_s(t)\)</span> by means of least squares optimization using the <code>deSolve</code> and <code>FME</code>-packages. First, given reaction model parameters <span class="math inline">\(k_s\)</span>, <span class="math inline">\(m\)</span>, we define a function that returns the vector of residuals <span class="math inline">\(y_s(t_i) - \alpha_s(t_i)\)</span> for <span class="math inline">\(i = 1,\ldots,n\)</span>, where the numerical integration of <span class="math inline">\(\alpha_s(t)\)</span> relies on <code>deSolve::ode()</code>.</p>
+<pre class="r"><code>library(FME)
+
+## single replicate residuals y_s(t) - alpha_s(t)
+resid_s &lt;- function(p, times, y_s) {
+  y_s[[&quot;y&quot;]] - alpha_s(p, times)[[&quot;alpha&quot;]]
+}
+
+resid_s(p = list(ks = pars[[&quot;ks&quot;]][1], m = 2), times, y_obs[[1]])</code></pre>
+<pre><code>#&gt;  [1]  0.0000000000  0.0469228977 -0.0109729722  0.0165083908 -0.0307352512
+#&gt;  [6]  0.0010589923  0.0003623959 -0.0219780481 -0.0180789262 -0.0122449312
+#&gt; [11] -0.0191027469</code></pre>
+<p>Secondly, we pass the defined residual function to <code>FME::modFit()</code>, which provides a convenient wrapper for various least squares optimization routines, defaulting to the <a href="https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm">Levenberg-Marquardt algorithm</a> available through <code>minpack.lm::nls.lm()</code>. Note that <code>FME::modFit()</code> is not restricted to only least squares optimization for ODE models, but historically is aimed at this context.</p>
+<pre class="r"><code>## single replicate nls optimization
+alpha_nls &lt;- modFit(
+  f = resid_s,                ## residual function
+  p = c(ks = 0, m = 1),       ## parameter initializations
+  times = times,              ## additional arguments to resid_s
+  y_s = y_obs[[1]]
+)
+
+summary(alpha_nls)</code></pre>
+<pre><code>#&gt; 
+#&gt; Parameters:
+#&gt;    Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; ks 0.085421   0.006826   12.51 5.38e-07 ***
+#&gt; m  2.299285   0.097091   23.68 2.04e-09 ***
+#&gt; ---
+#&gt; Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+#&gt; 
+#&gt; Residual standard error: 0.01563 on 9 degrees of freedom
+#&gt; 
+#&gt; Parameter correlation:
+#&gt;        ks      m
+#&gt; ks 1.0000 0.9238
+#&gt; m  0.9238 1.0000</code></pre>
+<p>The following plot displays the least squares fits <span class="math inline">\(\hat{\alpha}_s(t)\)</span> obtained with <code>FME::modFit()</code> for each individual replicate <span class="math inline">\(s = 1,\ldots,S\)</span>:</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-17-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="mcmc-sampling-1" class="section level2">
+<h2>MCMC sampling</h2>
+<p>Based on the individual least squares fits we can quickly assess whether the reaction-order models provide reasonable fits to the observed data, but obtaining least squares or maximum likelihood estimates based on the complete Beta regression model (including random effects) is less straightforward<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a>. In Stan, on the other hand, the regression model is implemented as a standard random effects model by specifying the relevant contributions to the joint (log-)probability function as usual. The fact that the conditional expectations <span class="math inline">\(\mathbb{E}[ y_s(t)\, |\, \alpha_s(t)]\)</span> are based on numerical (ODE) integration is not fundamentally different for the MCMC sampler from any other nonlinear (or linear) function specification for <span class="math inline">\(\alpha_s(t)\)</span>.</p>
+<p>The following Stan program encodes the regression model using a <a href="https://mc-stan.org/docs/2_26/stan-users-guide/reparameterization-section.html">non-centered parameterization</a> for the random effects <span class="math inline">\(k_1,\ldots,k_S\)</span>. The reaction trends <span class="math inline">\(\alpha_s(t)\)</span> are integrated using the <code>ode_rk45</code> function analogous to the previous example. Both the random effects parameters and the smooth reaction trends are specified in the <code>transformed parameters</code> block, but these could also have been specified in the <code>model</code> block. The specification of the Beta likelihood for <span class="math inline">\(y_s(t)\, |\, \alpha_s(t), \phi\)</span> in the <code>model</code> block is similar to the model description above. Note that the somewhat contrived data format for <code>y_s</code> and <code>alpha_s</code> (an array of vectors) is used because this is the format returned by <code>ode_rk45</code>.</p>
+<pre class="stan"><code>// ex2.stan (Stan &gt;= 2.24)
+functions {
+  vector deriv(real time, vector y, vector ks, real m) {
+    int S = rows(ks);
+    vector[S] dydt = ks .* pow(1 - y, rep_vector(m, S));
+    return dydt;
+  }
+}
+data {
+  int&lt;lower = 1&gt; n;                       // # observations
+  int&lt;lower = 1&gt; S;                       // # replicates
+  real times[n];                          // observed times
+  vector&lt;lower = 0, upper = 1&gt;[S] y_s[n]; // observed trends
+}
+transformed data {
+  vector[S] y0 = rep_vector(0.0, S);
+}
+parameters {
+  real&lt;lower = 0&gt; k;                 // mean rate constant
+  real&lt;lower = 0, upper = 3&gt; m;      // reaction order
+  real&lt;lower = 0&gt; sigma_u;           // replicate sd
+  real&lt;lower = 1E-10&gt; phi_inv;       // residual sd scale
+  vector[S] u_s;                     // random effects          
+}
+transformed parameters{
+  vector[S] ks;
+  vector[S] alpha_s[n];
+  ks = k + sigma_u * u_s;
+  alpha_s = ode_rk45(deriv, y0, 0, times, ks, m); 
+}
+model {
+  // (naive) normal priors
+  k ~ normal(0, 1);
+  m ~ normal(1, 1);
+  sigma_u ~ normal(0, 1);
+  phi_inv ~ normal(0, 1);
+  // likelihood
+  u_s ~ std_normal();
+  for(s in 1:S) 
+    y_s[][s] ~ beta(alpha_s[][s] / phi_inv, (1 - alpha_s[][s]) / phi_inv);
+}
+</code></pre>
+<p>Stan model compilation and sampling is again executed with CmdStan (&gt;=2.24) using the <code>cmdstanr</code>-package. Note that we remove the observations at time zero in the input <code>data</code> argument passed to Stan.</p>
+<pre class="r"><code>## 1) compile model
+ex2_model &lt;- cmdstan_model(&quot;ex2.stan&quot;)
+## 2) sample posteriors
+ex2_fit &lt;- ex2_model$sample(
+  seed = 1,
+  data = list(
+    n = length(times) - 1,
+    S = S,
+    times = times[-1],
+    y_s = sapply(y_obs, function(y_s) y_s$y[-1])
+  ),
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000
+)</code></pre>
+<p>Assessing CmdStan’s summary diagnostics, all MCMC chains seem to have converged correctly. Also, the posterior distributions of the main model parameters are all well-behaved as seen from the pairs plot below.</p>
+<pre class="r"><code>## model fit summary
+ex2_fit$summary()</code></pre>
+<pre><code>#&gt; # A tibble: 125 x 10
+#&gt;    variable     mean   median      sd     mad       q5      q95  rhat ess_bulk
+#&gt;    &lt;chr&gt;       &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;
+#&gt;  1 lp__      2.48e+2  2.49e+2 3.59e+0 3.43e+0  2.42e+2  2.53e+2  1.00     692.
+#&gt;  2 k         1.14e-1  1.14e-1 1.68e-2 1.58e-2  8.66e-2  1.42e-1  1.00     754.
+#&gt;  3 m         2.08e+0  2.08e+0 3.35e-2 3.34e-2  2.02e+0  2.13e+0  1.00    1798.
+#&gt;  4 sigma_u   4.88e-2  4.63e-2 1.41e-2 1.20e-2  3.15e-2  7.43e-2  1.00     701.
+#&gt;  5 phi_inv   2.22e-3  2.18e-3 3.58e-4 3.40e-4  1.71e-3  2.87e-3  1.00    2222.
+#&gt;  6 u_s[1]   -9.36e-1 -9.22e-1 4.08e-1 4.00e-1 -1.63e+0 -2.73e-1  1.00     730.
+#&gt;  7 u_s[2]    3.75e-2  3.96e-2 3.35e-1 3.27e-1 -5.39e-1  5.80e-1  1.00     791.
+....</code></pre>
+<pre class="r"><code>library(bayesplot)
+
+## pairs plot of posteriors
+color_scheme_set(&quot;red&quot;)
+mcmc_pairs(ex2_fit$draws(c(&quot;k&quot;, &quot;m&quot;, &quot;sigma_u&quot;, &quot;phi_inv&quot;)), off_diag_fun = &quot;hex&quot;)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-21-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>As expected, the posterior reaction trend fits exhibit a smaller overall mean squared error (MSE) compared to the individual least squares fits, as seen in the plot below by comparing the target reaction trends <span class="math inline">\(\alpha_s(t)\)</span> to the posterior predicted median (pointwise in time) trends<a href="#fn5" class="footnote-ref" id="fnref5"><sup>5</sup></a>. This is attributed to the following facts: (i) the Stan model corresponds exactly to the generative model of the observed processes <span class="math inline">\(y_s(t)\)</span> for <span class="math inline">\(s = 1,\ldots,S\)</span>, and (ii) the random effects model allows to share information across replicates, which is not possible in the individual least squares fits. Moreover, statistical (posterior) inference for any quantity of interest should be straightforward using the sampled posterior parameters and posterior predicted reaction trends. To illustrate, for each replicate <span class="math inline">\(s\)</span>, the plot also includes 0.5% and 99.5% posterior quantiles (pointwise in time) for the replicate-specific posterior predicted reaction trends.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-22-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references">
+<div id="ref-KF06">
+<p>Khawam, A., and D. R. Flanagan. 2006. “Solid-State Kinetic Models: Basics and Mathematical Fundamentals.” <em>Journal of Physical Chemistry B</em> 110(45): 17315–28. <a href="https://doi.org/10.1021/jp062746a">https://doi.org/10.1021/jp062746a</a>.</p>
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>For additional details, see <a href="https://mc-stan.org/users/documentation/case-studies/convert_odes.html" class="uri">https://mc-stan.org/users/documentation/case-studies/convert_odes.html</a><a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>Except possibly in terms of computational efficiency. For efficiently solving a system of linear ODE’s, see e.g. <a href="https://mc-stan.org/docs/2_26/stan-users-guide/solving-a-system-of-linear-odes-using-a-matrix-exponential.html" class="uri">https://mc-stan.org/docs/2_26/stan-users-guide/solving-a-system-of-linear-odes-using-a-matrix-exponential.html</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>The Arrhenius parameters <span class="math inline">\(A\)</span> and <span class="math inline">\(E_a\)</span> are highly correlated in their posteriors, but this does not cause any major sampling issues for Stan.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>The <code>FME::modMCMC()</code> function allows for MCMC sampling using a number of custom Metropolis algorithms, but is aimed primarily at fitting (ODE) signal plus i.i.d. noise models, see e.g. <a href="https://cran.r-project.org/web/packages/FME/vignettes/FMEmcmc.pdf" class="uri">https://cran.r-project.org/web/packages/FME/vignettes/FMEmcmc.pdf</a><a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+<li id="fn5"><p>For simplicity, in <code>ex2.stan</code>, the predicted reaction trends are only evaluated at the observed time points. To evaluate trend predictions at different time points, an additional <code>generated quantities</code> block can be included in the Stan program analogous to <code>ex1.stan</code>.<a href="#fnref5" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
