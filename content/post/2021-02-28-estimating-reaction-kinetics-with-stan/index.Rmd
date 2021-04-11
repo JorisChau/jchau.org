@@ -153,6 +153,7 @@ ggplot(alpha, aes(x = time, y = value, color = variable)) +
   labs(x = "Time (min)", y = expression(tilde(alpha)(t)), title = "Integrated reaction models (k = 0.5 min\u207B\u00B9)", subtitle = expression(tilde(alpha)(t) == (alpha(t) - alpha(0)) / (alpha(1) - alpha(0)))) + 
   guides(color = guide_legend(title = expression(f(alpha))))
 ```
+
 To get a more detailed view of the available types of kinetic behavior, we integrate the same kinetic trends by also varying the rate constant $k$. The reaction models are grouped by the same categories as described in [@KF06, Table 1].
 
 ![](index_files/figure-html/anim.gif)
@@ -238,6 +239,7 @@ Firstly, given the observations $k_1,\ldots,k_S$, we can compute maximum likelih
 glmfit <- glm(k ~ 1 + I(-1 / (0.0083144 * temp_K)), family = gaussian(link = "log"), data = k_obs)
 summary(glmfit)
 ```
+
 Next, by evaluating the fitted GLM at a specific temperature (e.g. $T = 298.15 K$), we obtain a point estimate $\hat{k}(T)$, which can be plugged into the reaction model to predict the reaction kinetics at the specified temperature:  
 
 ```{r}
