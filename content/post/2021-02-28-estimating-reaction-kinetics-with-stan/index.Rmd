@@ -15,7 +15,6 @@ tags:
   - chemistry
 subtitle: ''
 summary: ''
-highlight: false
 authors: []
 lastmod: '2021-02-28T17:19:39+01:00'
 featured: no
@@ -586,7 +585,7 @@ model {
   // likelihood
   u_s ~ std_normal();
   for(s in 1:S) 
-    y_s[][s] ~ beta(alpha_s[][s] / phi_inv, (1 - alpha_s[][s]) / phi_inv);
+  y_s[][s] ~ beta(alpha_s[][s] / phi_inv, (1 - alpha_s[][s]) / phi_inv);
 }
 
 ```

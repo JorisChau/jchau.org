@@ -15,7 +15,6 @@ tags:
   - chemistry
 subtitle: ''
 summary: ''
-highlight: false
 authors: []
 lastmod: '2021-02-28T17:19:39+01:00'
 featured: no
@@ -434,12 +433,12 @@ ex1_fit$cmdstan_summary()
 #&gt; Inference for Stan model: ex1_model
 #&gt; 4 chains: each with iter=(1000,1000,1000,1000); warmup=(0,0,0,0); thin=(1,1,1,1); 4000 iterations saved.
 #&gt; 
-#&gt; Warmup took (0.72, 0.69, 0.64, 0.71) seconds, 2.8 seconds total
-#&gt; Sampling took (1.1, 1.0, 0.97, 0.94) seconds, 4.0 seconds total
+#&gt; Warmup took (1.0, 0.66, 0.58, 0.64) seconds, 2.9 seconds total
+#&gt; Sampling took (1.1, 1.1, 0.90, 0.86) seconds, 4.0 seconds total
 #&gt; 
 #&gt;                    Mean     MCSE   StdDev       5%      50%      95%    N_Eff  N_Eff/s    R_hat
 #&gt; 
-#&gt; lp__                -30  4.1e-02  1.3e+00      -32      -29      -28      931      232      1.0
+#&gt; lp__                -30  4.1e-02  1.3e+00      -32      -29      -28      931      231      1.0
 #&gt; accept_stat__   9.5e-01  1.4e-03  8.2e-02  7.8e-01  9.8e-01  1.0e+00  3.3e+03  8.1e+02  1.0e+00
 #&gt; stepsize__      7.1e-03  3.3e-04  4.7e-04  6.4e-03  7.3e-03  7.7e-03  2.0e+00  5.0e-01  2.1e+13
 #&gt; treedepth__     6.9e+00  4.2e-02  2.4e+00  2.0e+00  8.0e+00  9.0e+00  3.3e+03  8.1e+02  1.0e+00
@@ -447,9 +446,9 @@ ex1_fit$cmdstan_summary()
 #&gt; divergent__     0.0e+00      nan  0.0e+00  0.0e+00  0.0e+00  0.0e+00      nan      nan      nan
 #&gt; energy__        3.1e+01  5.9e-02  1.8e+00  2.9e+01  3.1e+01  3.4e+01  8.9e+02  2.2e+02  1.0e+00
 #&gt; 
-#&gt; lnA                  33  4.2e-02  1.3e+00       31       33       35      977      244      1.0
-#&gt; Ea                   75  1.1e-01  3.4e+00       70       75       81      977      244      1.0
-#&gt; sigma               1.9  8.0e-03  2.7e-01      1.5      1.9      2.4     1120      279      1.0
+#&gt; lnA                  33  4.2e-02  1.3e+00       31       33       35      977      243      1.0
+#&gt; Ea                   75  1.1e-01  3.4e+00       70       75       81      977      243      1.0
+#&gt; sigma               1.9  8.0e-03  2.7e-01      1.5      1.9      2.4     1120      278      1.0
 #&gt; y_new[1,1]         0.10  2.0e-04  6.3e-03    0.091     0.10     0.11     1013      252      1.0
 #&gt; y_new[2,1]         0.19  3.6e-04  1.1e-02     0.17     0.19     0.21     1012      252      1.0
 #&gt; y_new[3,1]         0.27  4.8e-04  1.5e-02     0.25     0.27     0.30     1012      252      1.0
@@ -620,7 +619,7 @@ model {
   // likelihood
   u_s ~ std_normal();
   for(s in 1:S) 
-    y_s[][s] ~ beta(alpha_s[][s] / phi_inv, (1 - alpha_s[][s]) / phi_inv);
+  y_s[][s] ~ beta(alpha_s[][s] / phi_inv, (1 - alpha_s[][s]) / phi_inv);
 }
 </code></pre>
 <p>Stan model compilation and sampling is again executed with CmdStan (&gt;=2.24) using the <code>cmdstanr</code>-package. Note that we remove the observations at time zero in the input <code>data</code> argument passed to Stan.</p>
