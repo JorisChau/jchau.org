@@ -15,6 +15,7 @@ tags:
   - chemistry
 subtitle: ''
 summary: ''
+highlight: false
 authors: []
 lastmod: '2021-02-28T17:19:39+01:00'
 featured: no
@@ -45,7 +46,8 @@ library(knitr)
 library(kableExtra)
 library(ggplot2)
 library(data.table)
-knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = 'center', comment = "#>")
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE, fig.align = 'center', comment = "#>")
+
 bayesplot::color_scheme_set("red")
 
 # save the built-in output hook
