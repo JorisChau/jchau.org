@@ -35,9 +35,10 @@ knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE, eval = 
 The aim of this post is to provide a short step-by-step guide on writing interactive [R Shiny](https://shiny.rstudio.com/)-applications that include models written in [Stan](https://mc-stan.org/) using [`rstan`](https://mc-stan.org/users/interfaces/rstan) and [`rstantools`](https://mc-stan.org/users/interfaces/rstantools). The remainder of this post assumes a small amount of working knowledge on writing models in Stan and usage of the package `rstan` to interface Stan from R.
 
 ## Demo set-up
+
 For demonstration purposes, let's start by writing a minimal Stan model file `lm.stan`:
 
-```{stan output.var="bernoulli"}
+```{stan output.var="lm"}
 data {
   int<lower=0> N;
   vector[N] x;
@@ -189,12 +190,14 @@ rstantools::rstan_create_package(
   stan_files = "lm.stan"
 )
 ```
+
 After updating the DESCRIPTION file and roxygenizing the package with `roxygen2::roxygenize()` or `devtools::document()`, the R-package can be installed with a call to `R CMD INSTALL` or `devtools::install()`. Note that building the package from source takes a while, since this is the moment when the Stan models are compiled and made available to R. The compiled Stan model originating from `lm.stan` is now directly available in the internal object `stanmodels`, a named list of S4-objects of class `"stanmodel"`, with each S4-object containing the compiled model version of a single `.stan` file in the `inst/stan` folder:
 
 ```{r, eval = TRUE}
 shinyStanModels:::stanmodels[["lm"]]
 class(shinyStanModels:::stanmodels[["lm"]])
 ```
+
 At this point we can directly sample from the S4-model objects with `rstan::sampling()`:
 
 ```{r, eval = TRUE}
@@ -207,6 +210,7 @@ system.time({
   )
 })
 ```
+
 To keep everything together, we can just as well add the `app.R` file to the R-package in a folder `inst/app`. The contents of the `app.R` file are now similar to our initial attempt, but with the call to `rstan::stan_model()` left out:
 
 ```{r}
@@ -264,6 +268,7 @@ brms::make_stancode(
   family = "gaussian"
 )
 ```
+
 By including this Stan code in the `inst/stan` folder and rebuilding the R-package, we circumvent the compilation step in `brms::brm()` and can directly sample from the compiled Stan model with `rstan::sampling()` as in the previous section. Note that the model input is slightly different, since `brms` has generated the Stan code for a more general multiple linear model:
 
 ```{r, eval = TRUE}

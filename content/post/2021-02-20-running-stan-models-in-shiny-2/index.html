@@ -109,7 +109,7 @@ r_process &lt;- r_bg(
 ## the process object is returned immediately
 ## and can be polled from the current R process
 r_process
-#&gt; PROCESS &#39;R&#39;, running, pid 27966.
+#&gt; PROCESS &#39;R&#39;, running, pid 31672.
 
 ## check if job is still running
 r_process$is_alive()
@@ -124,7 +124,7 @@ system.time({
   r_process$wait()
 })
 #&gt;    user  system elapsed 
-#&gt;  25.697   0.102  25.716
+#&gt;  22.239   0.099  22.247
 r_process
 #&gt; PROCESS &#39;R&#39;, finished.
 r_process$get_result()
@@ -133,12 +133,12 @@ r_process$get_result()
 #&gt; post-warmup draws per chain=500, total post-warmup draws=1000.
 #&gt; 
 #&gt;         mean se_mean   sd   2.5%    25%    50%    75%  97.5% n_eff Rhat
-#&gt; alpha   0.00    0.00 0.01  -0.02  -0.01   0.00   0.01   0.02   382 1.00
-#&gt; beta    1.00    0.00 0.00   1.00   1.00   1.00   1.00   1.00   473 1.00
-#&gt; sigma   0.10    0.00 0.00   0.10   0.10   0.10   0.11   0.11   345 1.01
-#&gt; lp__  876.27    0.07 1.18 873.03 875.81 876.53 877.09 877.60   310 1.00
+#&gt; alpha   0.02    0.00 0.01   0.00   0.01   0.02   0.03   0.04   248 1.01
+#&gt; beta    1.00    0.00 0.00   1.00   1.00   1.00   1.00   1.00   338 1.01
+#&gt; sigma   0.10    0.00 0.00   0.09   0.10   0.10   0.10   0.10   293 1.00
+#&gt; lp__  909.03    0.07 1.23 905.93 908.46 909.40 909.93 910.40   296 1.01
 #&gt; 
-#&gt; Samples were drawn using NUTS(diag_e) at Sun Feb 28 13:53:14 2021.
+#&gt; Samples were drawn using NUTS(diag_e) at Mon Apr 12 09:00:15 2021.
 #&gt; For each parameter, n_eff is a crude measure of effective sample size,
 #&gt; and Rhat is the potential scale reduction factor on split chains (at 
 #&gt; convergence, Rhat=1).</code></pre>
@@ -276,7 +276,7 @@ Figure 2: Progress of sampling iterations with two chains (in sequence) on a sin
 #&gt; [1] callr_3.5.1
 #&gt; 
 #&gt; loaded via a namespace (and not attached):
-#&gt;  [1] rstan_2.21.2         tidyselect_1.1.0     xfun_0.21           
+#&gt;  [1] rstan_2.21.2         tidyselect_1.1.0     xfun_0.22           
 #&gt;  [4] bslib_0.2.4          purrr_0.3.4          V8_3.4.0            
 #&gt;  [7] colorspace_2.0-0     vctrs_0.3.6          generics_0.1.0      
 #&gt; [10] htmltools_0.5.1.1    stats4_4.0.2         loo_2.4.1           
@@ -284,7 +284,7 @@ Figure 2: Progress of sampling iterations with two chains (in sequence) on a sin
 #&gt; [16] jquerylib_0.1.3      pillar_1.4.7         DBI_1.1.1           
 #&gt; [19] glue_1.4.2           withr_2.4.1          RColorBrewer_1.1-2  
 #&gt; [22] matrixStats_0.58.0   lifecycle_0.2.0      stringr_1.4.0       
-#&gt; [25] munsell_0.5.0        blogdown_1.1.7       gtable_0.3.0        
+#&gt; [25] munsell_0.5.0        blogdown_1.2         gtable_0.3.0        
 #&gt; [28] visNetwork_2.0.9     htmlwidgets_1.5.3    codetools_0.2-16    
 #&gt; [31] evaluate_0.14        inline_0.3.17        knitr_1.31          
 #&gt; [34] ps_1.5.0             shinyStanModels_0.1  DiagrammeR_1.0.6.1  

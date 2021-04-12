@@ -89,6 +89,7 @@ The covariates $\boldsymbol{X}$, $\boldsymbol{Z}$ and the participation decision
 $$
 \begin{pmatrix} \epsilon_i \\ \eta_i \end{pmatrix} \ \overset{\text{iid}}{\sim} \ N\left( \begin{pmatrix} 0 \\ 0 \end{pmatrix}, \begin{pmatrix} \sigma_e^2 & \rho \sigma_e \\ \rho \sigma_e & 1 \end{pmatrix} \right)
 $$
+
 Note that the error terms in the two regression equations are allowed to be correlated. The variance of $\eta_i$ is normalized to 1 as we only know the sign of $Z_i'\boldsymbol{\gamma} + \eta_i$ in observing $D_i$.
 
 ## Likelihood derivation
@@ -103,22 +104,26 @@ L(\boldsymbol{\theta}) = & \prod_{i = 1}^N \Big[ (1 - D_i) \cdot P_{\boldsymbol{
 & \quad \quad + D_i \cdot P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i) \cdot P_{\boldsymbol{\theta}}(Y_i = y_i | X_i, Z_i) \Big]
 \end{aligned}
 $$
+
 If $D_i = 0$, we know nothing about $Y_i$, for this reason the only contribution to the likelihood if $D_i = 0$ is the probability that $D_i = 0$ itself, which can be simplified to:
 
 $$
 P_{\boldsymbol{\theta}}(D_i = 0 | X_i, Z_i) \ = \ P_{\boldsymbol{\theta}}(\eta_i < -Z_i'\boldsymbol{\gamma})
 \ = \ \Phi(-Z_i' \boldsymbol{\gamma}) 
 $$
+
 where the last step uses that the marginal distribution of $\eta_i$ is a standard normal, i.e. $\eta_i \sim N(0, 1)$. Also, since $Y_i | X_i, \boldsymbol{\theta} \sim N(X_i' \boldsymbol{\beta}, \sigma_e^2)$, the probability that $Y_i = y_i$ is given by:
 
 $$
 P_{\boldsymbol{\theta}}(Y_i = y_i | X_i, Z_i) \ = \ \frac{1}{\sigma_e}\phi\left(\frac{y_i - X_i'\boldsymbol{\beta}}{\sigma_e}\right)
 $$
+
 The only term in the likelihood that remains is $P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i)$. To find this probability, we use the fact that the conditional distribution of a bivariate normal is again normal with known mean and variance, see e.g. [Wikipedia](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Bivariate_case_2). Specifically, it can be verified that:
 
 $$
 \eta_i | X_i, Z_i, Y_i \ \sim \ N\left(\rho \frac{1}{\sigma_e}(y_i - X_i'\boldsymbol{\beta}), 1-\rho^2\right)
 $$
+
 Using this form for the conditional distribution of $\eta_i$, the probability that $D_i = 1$ can be written out as:
 
 $$
@@ -128,6 +133,7 @@ P_{\boldsymbol{\theta}}(D_i = 1 | X_i, Z_i, Y_i) & \ = \ P_{\boldsymbol{\theta}}
 & \ = \ \Phi\left( \frac{Z_i'\boldsymbol{\gamma} + (\rho / \sigma_e) \cdot (y_i - X_i' \boldsymbol{\beta})}{\sqrt{1 - \rho^2}} \right)
 \end{aligned}
 $$
+
 Combining the previous assertions, we arrive at the following expression for the log-likelihood:
 
 $$
@@ -136,6 +142,7 @@ $$
 & \quad \quad + \ln \Phi((Z_i'\boldsymbol{\gamma} + (\rho / \sigma_e) \cdot (y_i - X_i'\boldsymbol{\beta})) \cdot (1 - \rho^2)^{-1/2} ))  \Big) \Big]
 \end{aligned}
 $$
+
 Maximizing this log-likelihood turns out to be somewhat tricky in practice. For this reason, a two-stage estimator is considered in [@H79], which in a first step fits a [probit](https://en.wikipedia.org/wiki/Probit_model) model for the participation decision $\boldsymbol{D}$, and in a second step fits a modified version of the outcome equation for the response of interest $\boldsymbol{Y}$ by plugging in an inverse [Mills ratio](https://en.wikipedia.org/wiki/Mills_ratio) estimated in the first stage. The details of the two-stage estimator can be found in [@H79] or by a quick online search. 
 
 In contrast to the maximum likelihood estimator, the two-stage estimator is not necessarily [efficient](https://en.wikipedia.org/wiki/Efficiency_(statistics)). Another disadvantage is that the estimation error in the first stage is not propagated to the second stage estimates, which makes it less straightforward[^1] to obtain (asymptotically) valid standard errors or confidence intervals for the parameters. With this in mind, a Bayesian sampling approach could bring something to the table. Firstly, exploring the entire space of posterior distributions should be computationally more robust than direct optimization of the likelihood. Secondly, all parameters are sampled in a joint framework (based on the derived likelihood), so we have direct access to valid credible intervals as well as other statistics of interest derived from the posteriors. 
@@ -230,6 +237,7 @@ model_fit <- sampling(
 
 model_fit
 ```
+
 Looking at the sampling results returned by `rstan::sampling()`, we observe no obvious sampling problems. The posterior distributions all cover the target parameters reasonably well (using a total of $N = 512$ observations) and all Markov chains seem to have converged correctly. From the generated pairs plot of the posterior samples, we see that the posterior densities behave nicely and we cannot discern any clearly problematic regions in the sampled parameter space, (although there is a high degree of correlation between the posterior samples for the $\beta$ parameters and the $\rho$ parameter).
 
 ```{r, eval = TRUE, fig.height = 10, fig.width = 10}
@@ -243,6 +251,7 @@ mcmc_pairs(model_fit, pars = c("beta[1]", "beta[2]", "gamma[1]", "gamma[2]", "rh
 The animated plot below demonstrates the convergence of the posterior distributions to the target parameters when the number of total observations $N$ increases. The data simulation and sampling procedures (1000 post-warmup draws across 4 individual chains) are the same as before, only the number of observations $N$ is varied in each model fit.
 
 ![](index_files/figure-html/anim.gif)
+
 As a benchmark comparison, we generate the same animated plot showing the posterior distributions sampled from a simple linear model fitted **only** to the selected observations $Y_i$ with $D_i > 0$. As $N$ increases, the posterior distributions no longer converge[^3] to the target parameters, which is due to the fact that the sampling bias introduced by the participation decision $D_i$ is not taken into account. 
 
 ![](index_files/figure-html/anim1.gif)
@@ -291,13 +300,14 @@ Z[, -1] <- apply(Z[, -1], 2, scale)  ## normalize variables
 D <- Mroz87$lfp  ## participation decision
 
 ## fit Heckman selection model
-model_fit <- rstan::sampling(
+model_fit <- sampling(
   object = heckman_model, 
   data = list(N = length(D), N_y = length(y), p = ncol(X), q = ncol(Z), X = X, Z = Z, D = D, y = y)
 )
 
 model_fit
 ```
+
 Looking at the sampling results, all chains converged correctly and it seems that the model experienced no obvious issues in sampling from the posterior distributions. Below, we plot the posterior medians for the $\beta$ and $\gamma$ parameter vectors including 50% and 95% credible intervals:
 
 ```{r, eval = TRUE}
@@ -307,6 +317,7 @@ colnames(samples) <- c("age (beta)", "educ (beta)", "huswage (beta)", "exper (be
 
 mcmc_intervals(samples, point_est = "median", prob = 0.5, prob_outer = 0.95)
 ```
+
 Some observations we can make from the plotted posterior intervals is that age correlates with participation in the labor-force market, but apparently has no clear effect on the wage of the observed participants. A variable that *does* highly correlate with the wage is the number previous years worked, which is not too surprising. Also, more years of received education has a positive effect on labor-force participation, whereas having young children has a negative effect on labor-force participation, which seems quite intuitive as well.
 
 To conclude, we compare these results to the results obtained by fitting the same Heckman selection model using the two-stage estimator of [@H79] and direct maximum likelihood estimation with `sampleSelection::heckit()`. The two-stage and maximum likelihood estimators return more or less the same parameter estimates, but only the maximum likelihood estimator calculates standard errors for $\sigma_e$ and $\rho$. Moreover, the parameter estimates correspond very well to the posterior medians plotted above, so it seems safe to conclude that the Stan model behaves as expected.
