@@ -662,4 +662,3 @@ sessionInfo()
 [^4]: The `FME::modMCMC()` function allows for MCMC sampling using a number of custom Metropolis algorithms, but is aimed primarily at fitting (ODE) signal plus i.i.d. noise models, see e.g. https://cran.r-project.org/web/packages/FME/vignettes/FMEmcmc.pdf
 
 [^5]: For simplicity, in `ex2.stan`, the predicted reaction trends are only evaluated at the observed time points. To evaluate trend predictions at different time points, an additional `generated quantities` block can be included in the Stan program analogous to `ex1.stan`.
-

@@ -78,13 +78,13 @@ module:
   imports:
     - path: github.com/wowchemy/wowchemy-hugo-modules/wowchemy
 minify:
+  minifyOutput: false
   disableCSS: false
   disableHTML: false
   disableJS: false
   disableJSON: false
   disableSVG: false
   disableXML: false
-  minifyOutput: false
   tdewolff:
     css:
       keepCSS2: true
@@ -106,4 +106,3 @@ minify:
       precision: 0
     xml:
       keepWhitespace: true
-      
