@@ -1,0 +1,669 @@
+---
+title: Step function regression in Stan
+author: Joris Chau
+date: '2021-05-22'
+slug: step-function-regression-in-stan
+categories:
+  - Statistics
+  - Stan
+  - R
+tags:
+  - Step functions
+  - Piecewise constant regression
+  - Haar wavelet transform
+  - R
+  - Stan
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-05-22T13:34:57+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: true
+projects: []
+references:
+- id: N08
+  title: Wavelet Methods in Statistics with R
+  author:
+    - family: Nason
+      given: G.
+  type: "book"
+  issued:
+    year: 2008
+- id: J12
+  title: Noise Reduction by Wavelet Thresholding
+  author:
+    - family: Jansen
+      given: M.
+  type: "book"
+  issued:
+    year: 2012
+- id: JO05
+  title: Second Generation Wavelets and Applications
+  author:
+    - family: Jansen
+      given: M.
+    - family: Oonincx
+      given: P.J.
+  type: "book"
+  issued:
+    year: 2005
+- id: B18
+  title: Bayes Sparse Regression
+  author:
+    - family: Betancourt
+      given: M.
+  type: "article-journal"
+  issued:
+    year: 2018
+  URL: https://betanalpha.github.io/assets/case_studies/bayes_sparse_regression.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE, eval = FALSE,
+                      fig.align = "center", comment = "#>", out.width = "100%")
+
+bayesplot::color_scheme_set("red")
+
+# save the built-in output hook
+hook_output <- knitr::knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knitr::knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+```
+
+# Introduction
+
+Tha aim of this post is to provide a working approach to perform piecewise constant or [step function](https://en.wikipedia.org/wiki/Step_function) regression in Stan. To set up the regression problem, consider noisy observations $y_1, \ldots, y_n \in \mathbb{R}$ sampled from a standard signal plus i.i.d. Gaussian noise model of the form:
+
+$$ 
+\begin{aligned}
+y_i &\ = \ f(x_i) + \epsilon_i, \quad i = 1,\ldots, n \\
+\epsilon_i & \overset{\text{iid}}{\sim} N(0, \sigma^2)
+\end{aligned}
+$$
+
+with the independent variables $x_1,\ldots, x_n \in (0, 1]$ assumed to be observed at regular (e.g. time) intervals.
+
+The function $f: (0,1] \to \mathbb{R}$ is unknown[^1], but is restricted to the space of piecewise constant functions represented as:
+
+$$
+f(x) = \sum_{k = 0}^K \mu_k \mathbb{1}\{ \gamma_{k} < x \leq \gamma_{k + 1}  \}
+$$
+where $\mathbb{1}\{x \in A\}$ denotes the [indicator function](https://en.wikipedia.org/wiki/Indicator_function) and we use the convention that $\gamma_0 = 0$ and $\gamma_{K + 1} = 1$. Based on this representation, the regression coefficients to e x_nstimate are $K + 1$ local means $\mu_0,\ldots, \mu_K \in \mathbb{R}$ and $K$ ordered breakpoints $0 < \gamma_1 < \ldots < \gamma_{K} < 1$.
+
+Below, we simulate a simple step function $f(x)$ with $K = 3$ breakpoints at regular intervals and unit valued jumps at each breakpoint. The step function $f(x)$ is evaluated at $x_i = i / n$ for $i = 1,\ldots, n$ with $n = 128$, and the noisy observations $y_i$ are sampled from a normal distribution centered around $f(x_i)$ with noise standard deviation $\sigma = 0.2$.
+
+```{r, eval = TRUE}
+library(ggplot2)
+
+## parameters
+K <- 3         # nr. breakpoints
+N <- 128       # nr. observations
+mu <- 0:K      # local means
+sigma <- 0.2   # error sd
+
+## data
+set.seed(1)
+f <- rep(mu, each = N / (K + 1))
+x <- (1:N) / N
+y <- rnorm(N, mean = f, sd = sigma) 
+
+ggplot(data = data.frame(x = x, y = y, f = f), aes(x = x)) + 
+  geom_line(aes(y = f), lty = 2, color = "grey50") + 
+  geom_point(aes(y = y)) + 
+  theme_light() +
+  labs(x = "Time", y = "Response", title = "K = 3 breakpoints at regular intervals")
+```
+
+# Attempt #1
+
+In a first attempt to fit the regression model, we write a Stan program using the parameterization described above. The **parameters** block contains a $(K + 1)$-dimensional vector of local means $\boldsymbol{\mu}$, the scalar noise standard deviation $\sigma$, and a $K + 1$-dimensional simplex of increments $\tilde{\boldsymbol{\gamma}}$ (with $K$ independent parameters), such that:
+
+$$
+\gamma_i = \sum_{k = 1}^i \tilde{\gamma}_k, \quad \text{for}\ i = 1,\ldots, K + 1
+$$
+The breakpoint vector $\boldsymbol{\gamma}$ itself and the regression function $f$ are defined
+in the **transformed parameters** block. Since we have no prior knowledge on the parameter values,
+general weakly informative priors are specified for $\mu$ and $\sigma$ and a symmetric Dirichlet prior 
+for $\tilde{\gamma}$ corresponding to a uniform distribution on the unit simplex.
+
+```{stan output.var="step1.stan"}
+// step1.stan
+data {
+  int<lower=1> N;
+  int<lower=1> K;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real mu[K + 1];
+  real<lower = 0> sigma;
+  simplex[K + 1] gamma_inc;
+}
+transformed parameters {
+  vector[K + 2] gamma = append_row(0, cumulative_sum(gamma_inc));
+  vector[N] f;
+  for(n in 1:N) {
+    for(k in 1:(K + 1)) {
+      if(x[n] > gamma[k] && x[n] <= gamma[k + 1]) {
+        f[n] = mu[k];
+      }
+    }
+  }
+}
+model {
+  mu ~ normal(0, 5);
+  sigma ~ exponential(1);
+  gamma_inc ~ dirichlet(rep_vector(1, K + 1));
+  y ~ normal(f, sigma);
+}
+```
+
+
+The Stan model compilation and HMC sampling is executed with `cmdstanr`, but could also be performed using `rstan`. Below, we draw 1000 posterior samples per chain (after 1000 warm-up samples) from 4 individual chains:
+
+```{r, eval = TRUE, out.lines = 11}
+library(cmdstanr)
+
+## compile model
+step1_model <- cmdstan_model("step1.stan")
+
+## draw samples
+step1_fit <- step1_model$sample(
+  data = list(N = N, K = K, x = x, y =  y),
+  chains = 4,
+  iter_sampling = 1000,
+  iter_warmup = 1000
+)
+```
+
+```{r, eval = TRUE}
+## sampling results
+step1_fit
+```
+
+A first look at the sampling results shows that the sampled chains completely failed to converge as indicated e.g. by the `rhat` column. 
+
+Calling the `cmdstan_diagnose()` method of the returned R6-object, essentially all statistics indicate (extremely) poor sampling performance:
+
+```{r, eval = TRUE, out.lines = 20}
+## sampling diagnostics
+step1_fit$cmdstan_diagnose()
+```
+
+As might have already been clear already from the start, the poor sampling performance is primarily caused by the discrete jumps in $f$ at the breakpoints $\boldsymbol{\gamma}$, which introduce discontinuities in the gradient of the joint (log-)likelihood as specifically warned for in the [Step-like functions](https://mc-stan.org/docs/2_27/functions-reference/step-functions.html#step-functions) section of Stan's function reference. 
+
+To make this precise with an example, we write out the gradient of the joint log-likelihood analytically when $f$ contains a single breakpoint[^2], i.e. 
+$$
+f(x) = \mu_0 \mathbb{1}\{x \leq \gamma_1 \} + \mu_1 \mathbb{1}\{x > \gamma_1\} 
+$$
+First, it can be verified that the likelihood of $\boldsymbol{\theta} = (\mu_0, \mu_1, \gamma_1, \sigma)'$ conditional on $(x_i, y_i)_{i = 1}^n$ is given by:
+
+$$
+\begin{aligned}
+L(\boldsymbol{\theta} | \boldsymbol{x}, \boldsymbol{y}) & \ = \ \prod_{i = 1}^n \mathbb{1}\{ x_i \leq \gamma_1 \} \frac{1}{\sigma} \phi\left( \frac{y_i - \mu_0}{\sigma} \right) + \mathbb{1}\{ x_i > \gamma_1 \} \frac{1}{\sigma} \phi\left( \frac{y_i - \mu_1}{\sigma} \right) \\
+& \ = \ \prod_{i=1}^n \frac{1}{\sigma} \phi\left( \frac{y_i - (\mu_0 + (\mu_1 - \mu_0) \mathbb{1}\{ x_i > \gamma_1 \})}{\sigma} \right) 
+\end{aligned}
+$$
+where $\phi$ denotes the probability density function of a standard normal. Taking the logarithm of the right-hand side produces the joint log-likelihood:
+
+$$
+\begin{aligned}
+\ell(\boldsymbol{\theta} | \boldsymbol{x}, \boldsymbol{y}) & \ = \ -\frac{n}{2} \log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_{i = 1}^n (y_i - (\mu_0 + (\mu_1 - \mu_0)\mathbb{1}\{x_i > \gamma_1\}))^2
+\end{aligned}
+$$
+
+and the derivatives of the log-likelihood with respect to $\mu_0, \mu_1, \sigma$ are given by:
+
+$$
+\begin{aligned}
+\frac{\partial \ell}{\partial \mu_0} & \ = \ \frac{1}{\sigma^2} \sum_{i = 1}^n (y_i - \mu_0)\mathbb{1}\{ x_i \leq \gamma_1 \}\\
+\frac{\partial \ell}{\partial \mu_1} & \ = \ \frac{1}{\sigma^2} \sum_{i = 1}^n (y_i - \mu_1)\mathbb{1}\{ x_i > \gamma_1 \}\\
+\frac{\partial \ell}{\partial \sigma} & \ = \ \frac{n}{\sigma} + \frac{1}{\sigma^3}\sum_{i = 1}^n (y_i - (\mu_0 + (\mu_1 - \mu_0)\mathbb{1}\{x_i > \gamma_1\}))^2
+\end{aligned}
+$$
+The derivative of the log-likelihood with respect to $\gamma_1$ does not exist at $x_1,\ldots,x_n$ (as $\ell(\gamma_1)$ is discontinuous at these points) and is zero everywhere else. 
+
+Suppose that $\gamma_1$ would be known and no longer needs to be estimated. Then the gradient of the log-likelihood consists only of the three partial derivatives listed above, which exist everywhere and are in fact continuous in each marginal direction. Note that this assumption does not make $f$ continuous as a function of $x$, but that does not matter, only the continuity of the gradient matters in order to improves Stan's sampling performance. 
+
+Below, we recompile the Stan model by removing the parameter vector $\tilde{\boldsymbol{\gamma}}$ and replacing the breakpoints $\boldsymbol{\gamma}$ by their true (unknown) values:
+
+```{stan output.var="step1a.stan"}
+// step1a.stan
+data {
+  int<lower=1> N;
+  int<lower=1> K;
+  vector[N] x;
+  vector[N] y;
+}
+transformed data{
+  simplex[K + 1] gamma_inc = rep_vector(0.25, 4);
+}
+parameters {
+  real mu[K + 1];
+  real<lower = 0> sigma;
+}
+transformed parameters {
+  vector[K + 2] gamma = append_row(0, cumulative_sum(gamma_inc));
+  vector[N] f;
+  for(n in 1:N) {
+    for(k in 1:(K + 1)) {
+      if(x[n] > gamma[k] && x[n] <= gamma[k + 1]) {
+        f[n] = mu[k];
+      }
+    }
+  }
+}
+model {
+  mu ~ normal(0, 5);
+  sigma ~ exponential(1);
+  y ~ normal(f, sigma);
+}
+```
+
+We redraw 4000 posterior samples across 4 chains with `cmdstanr` as before:
+
+```{r, eval = TRUE, out.lines = 11}
+## recompile model
+step1a_model <- cmdstan_model("step1a.stan")
+
+## redraw samples
+step1a_fit <- step1a_model$sample(
+  data = list(N = N, K = K, x = x, y =  y),
+  chains = 4,
+  iter_sampling = 1000,
+  iter_warmup = 1000
+)
+```
+As expected, the sampling results are much more satisfactory than before:
+
+```{r, eval = TRUE}
+## sampling results
+step1a_fit
+```
+
+```{r, eval = TRUE}
+## sampling diagnostics
+step1a_fit$cmdstan_diagnose()
+```
+Obviously, the breakpoints $\boldsymbol{\gamma}$ cannot assumed to be known in advance, but the previous example does highlight the fact that the Stan model should be reparameterized in such a way that the discontinuous indicator functions do not depend on the unknown parameters to make sure that the gradient of the joint log-likelihood exists and is continuous.
+
+# Attempt #2
+
+In a second attempt, we no longer try to explicitly model the breakpoint parameters $\boldsymbol{\gamma}$. Instead, the idea is to allow for a possible discrete jump at every location $x_i$ for $i = 1, \ldots, n$. Without any type of regularization, such a model would be heavily overparameterized requiring the same amount of parameters as the number of observations. However, the function $f(x)$ is assumed to be piecewise constant, so we can use the fact that most jump sizes are zero and only few non-zero jumps should be sufficient to capture the behavior of $f(x)$. 
+
+## Discrete Haar wavelet transform
+
+To make this idea concrete, we will decompose the input vector $y_1,\ldots,y_n$ according to a discrete [Haar wavelet transform](https://en.wikipedia.org/wiki/Haar_wavelet), which is a **linear** transformation that expands the $n$-dimensional input vector $y_1,\ldots,y_n$ into an $(n-1)$-dimensional vector of *wavelet* (or difference) coefficients $d_1,\ldots,d_{n-1}$ and a single *scaling* (or average) coefficient $c_0$. The discrete Haar wavelet transform is the most basic wavelet transform and is particularly well-suited to decompose piecewise constant signals, which generally produce very sparse Haar wavelet coefficient vectors with most wavelet coefficients equal to zero. For a description of the discrete Haar wavelet transform and more general usage of wavelets in statistics, see e.g. [@N08] or [@J12]. 
+
+For simplicity, in the remainder of this post it is assumed that the number of observations is dyadic, i.e. $n = 2^J$ for some integer $J$, which is a common assumption in the context of wavelet regression[^3]. Given the input signal $f(x_1),\ldots,f(x_n)$, it is quite straightforward to encode the forward Haar transform in a recursive fashion:
+
+```{r, eval = TRUE}
+## helper function to calculate scaling (average) or wavelet (difference) coefficients
+filt <- function(C, fun) fun(C[c(T, F)], C[c(F, T)]) / sqrt(2)
+
+## lists with scaling + wavelet coefficients from course to fine scales
+C <- D <- vector(mode = "list", length = log2(N))
+
+## recursively update course scale coefficients
+for(l in log2(N):1) {
+  C[[l]] <- filt(C = if(l < log2(N)) C[[l + 1]] else f, fun = `+`)
+  D[[l]] <- filt(C = if(l < log2(N)) C[[l + 1]] else f, fun = `-`)
+}
+```
+
+The list with scaling coefficients `C` consists of scaled local averages at increasingly coarse resolution scales, with the scaling coefficient at the coarsest scale (i.e. `C[[1]]`) being equivalent to the global mean scaled by a known factor:
+
+```{r, eval = TRUE}
+all.equal(C[[1]], 2^(log2(N)/2) * mean(f))
+```
+Analogously, the list with wavelet coefficients `D` consists of scaled local differences of the scaling coefficients at increasingly coarse resolution scales. For the piecewise constant signal `f`, the list of wavelet coefficients is very *sparse* as most local differences are equal to zero and only a few non-zero wavelet coefficients are necessary to encode the jumps in the signal[^4]:
+
+```{r, eval = TRUE}
+D
+```
+Keeping track of all scaling and wavelet coefficients contained in `C` and `D` is redundant. To reconstruct the original input signal we need only the coarsest scaling coefficient `C[[1]]` and the $n-1$ wavelet coefficients present in `D`. The inverse (or backward) Haar wavelet transform follows directly by applying the average and difference operations in the forward wavelet transform in the opposite sense:
+
+```{r, eval = TRUE}
+## helper function to reconstruct scaling coefficients at finer scale
+inv_filt <- function(C, D) c(t(cbind((C + D) / sqrt(2), (C - D) / sqrt(2))))
+
+## recursively reconstruct fine scale coefficients
+f1 <- C[[1]]
+for(l in 1:log2(N)) {
+  f1 <- inv_filt(C = f1, D = D[[l]])  
+}
+
+all.equal(f, f1)
+```
+The following functions encodes the discrete (forward and backward) Haar wavelet transform in Stan and are saved in a file named `haar.stan`:
+
+```{stan output.var = "haar.stan"}
+// haar.stan
+
+// filter C coefficient vector
+vector filtC(vector C, int N) {
+    vector[N] C1;
+    for (n in 1 : N) {
+        C1[n] = (C[2 * n - 1] + C[2 * n]) / sqrt2();
+    }
+    return C1;
+}
+// filter D coefficient vector
+vector filtD(vector D, int N) {
+    vector[N] D1;
+    for (n in 1 : N) {
+        D1[n] = (D[2 * n - 1] - D[2 * n]) / sqrt2();
+    }
+    return D1;
+}
+// reconstruct C coefficient vector
+vector inv_filt(vector C, vector D, int N) {
+    vector[2 * N] C1;
+    for (n in 1 : N) {
+        C1[2 * n - 1] = (C[n] + D[n]) / sqrt2();
+        C1[2 * n] = (C[n] - D[n]) / sqrt2();
+    }
+    return C1;
+}
+// forward Haar wavelet transform
+vector fwt(vector y) {
+    int N = rows(y);
+    int Ni = 0;
+    vector[N] ywd;
+    vector[N] C = y;
+    while (N > 1) {
+        N /= 2;
+        ywd[(Ni + 1):(Ni + N)] = filtD(C[1 : (2 * N)], N);
+        C[1:N] = filtC(C[1 : (2 * N)], N);
+        Ni += N;
+    }
+    ywd[Ni + 1] = C[1];
+    return ywd;
+}
+// inverse Haar wavelet transform
+vector iwt(vector ywd) {
+    int N = rows(ywd);
+    vector[N] y;
+    int Nj = 1;
+    y[1] = ywd[N];
+    while (Nj < N) {
+        y [1 : (2 * Nj)] = inv_filt(y[1 : Nj], ywd[(N - 2 * Nj + 1) : (N - Nj)], Nj);
+        Nj *= 2;
+    }
+    return y;
+}
+```
+
+The above code can then easily be included in the **functions** block of another Stan file with `#include haar.stan`. For instance, we can verify that the forward and backward wavelet transforms produce the expected outputs:
+
+```{stan output.var="haar_test.stan"}
+// haar_test.stan
+functions{
+  #include haar.stan
+}
+data {
+  int<lower=1> N;
+  vector[N] y;
+}
+parameters {
+}
+generated quantities {
+   vector[N] ywd = fwt(y);
+   vector[N] y1 = iwt(ywd);
+}
+```
+
+```{r, eval = TRUE, out.lines = 11}
+## compile model
+dwt_model <- cmdstan_model("haar_test.stan", include_paths = ".")
+
+## draw single sample with no parameters
+dwt_fit <- dwt_model$sample(
+  data = list(N = N, y = f),
+  chains = 1,
+  iter_sampling = 1,
+  iter_warmup = 0,
+  sig_figs = 18,
+  fixed_param = TRUE
+)
+
+## check forward wavelet transform
+all.equal(c(dwt_fit$draws(variables = "ywd")), c(unlist(rev(D)), C[[1]]))
+
+## check inverse wavelet transform 
+all.equal(c(dwt_fit$draws(variables = "y1")), f)
+```
+
+## Wavelet domain regression
+
+Provided that the target signal $f(x)$ has a sparse representation in the wavelet domain, a sensible estimation approach is to: (1) transform the noisy observation vector $\boldsymbol{y} = (y_1,\ldots,y_n)'$ to the wavelet domain; (2) perform a sparse regression on the wavelet coefficients; (3) transform the result back to the functional domain to obtain an estimate $\hat{f}(x)$. 
+
+As mentioned previously, the discrete Haar wavelet transform is a linear transformation $\boldsymbol{d}^y = \boldsymbol{W} \boldsymbol{y}$, with $(n \times n)$-dimensional wavelet transformation matrix $\boldsymbol{W}$. Given the signal plus i.i.d. Gaussian noise model for the observations,
+$$
+\boldsymbol{y} \ \sim N(\boldsymbol{f}, \sigma^2\boldsymbol{I}_{n \times n})
+$$
+this implies that the transformed observations in the wavelet domain also follow a Gaussian signal plus noise model:
+$$
+\boldsymbol{d}^y \ \sim N(\boldsymbol{d}^f, \sigma^2 \boldsymbol{W}\boldsymbol{W}')
+$$
+where $\boldsymbol{d}^f = \boldsymbol{W}\boldsymbol{f}$ is the wavelet transformation of the target signal $\boldsymbol{f} = (f(x_1),\ldots,f(x_n))'$.
+
+Moreover, the linear transformation matrix $\boldsymbol{W}$ is a *unitary matrix*, i.e. the transpose $\boldsymbol{W}'$ and the inverse $\boldsymbol{W}^{-1}$ coincide, (see e.g. [@N08, Ch. 2]). This is particularly useful as it means that we also have a signal plus i.i.d. Gaussian noise model in the wavelet domain with the same noise variance as in the functional domain:
+
+$$
+d^y_{i} \ \overset{\text{iid}}{\sim} N(d^f_{i}, \sigma^2), \quad i = 1,\ldots, n
+$$
+
+That is, the regression problem in the wavelet domain comes down to **sparse linear regression** in an i.i.d. Gaussian noise model.
+
+## Sparse linear regression in Stan
+
+To induce sparsity in the estimated wavelet coefficient vector, we use a simplified version of the *Finnish horseshoe* prior as described in [@B18], which is summarized as:
+
+$$
+\begin{aligned}
+d^f_i & \sim \ N(0, \tilde{\lambda}_i^2 ) \\
+\tilde{\lambda}_i & \ = \ \frac{\tau \lambda_i}{\sqrt{1 + \tau^2 \lambda_i^2}} \\
+\lambda_i & \sim \ \text{Half-}\mathcal{C}(0, 1) \\
+\tau & \sim \ \text{Half-}N(0, \tau_0)
+\end{aligned}
+$$
+
+The difference with respect to the specification in [@B18] is that the additional scale parameter $c$ is set to 1 and the Cauchy prior for $\tau$ is replaced by a light-tailed normal prior. The $\tau_0$ parameter is calculated as:
+
+$$
+\tau_0 \ = \ \frac{m_0}{1 - m_0} \frac{\sigma_0}{\sqrt{N}}
+$$
+where $m_0$ is the expected fraction of non-zero wavelet coefficients (provided as input data), and $\sigma_0$ is an initial estimate of the noise variance. The value for $\sigma_0$ is calculated automatically by taking the standard deviation of the finest-scale coefficients in the noisy vector $\boldsymbol{d}^y$, which are expected to contain primarily noise and (almost) no signal. As in [@B18], the sampling results are not very sensitive to the value of $m_0$ (and consequently $\tau_0$), but it does provide a convenient global tuning parameter for the amount of regularization applied to the estimated coefficients.
+
+The complete model is encoded in a new Stan file `step2.stan`. First, the input vector $y$ is transformed to the wavelet domain (`ywd`) in the **transformed data** block. The wavelet coefficient vector of the target signal $f$ is constructed in the **transformed parameters** block based on the considerations above. To reduce the number of model parameters, the wavelet coefficients at the finest resolution scale are directly set to zero, (as the finest-scale wavelet coefficients are expected to contain only noise), leaving a set of $N/2 - 1$ (sparse) wavelet coefficients to be estimated. The **model** block specifies the simplified Finnish horseshoe priors as well as a naive normal prior for the noise standard deviation $\sigma$. In addition, the likelihood contributions based on the wavelet domain Gaussian linear model are specified. Finally, the regularized wavelet coefficient vector is back-transformed to the functional domain in the **generated quantities** block.
+
+```{stan output.var="step2.stan"}
+// step2.stan
+functions{
+  #include haar.stan 
+}
+data {
+  int<lower=1> N;
+  vector[N] y;        // input vector
+  real<lower = 0> m0; // expected fraction of non-zero coefficients
+}
+transformed data{
+  int M = (N / 2) - 1;                               // # estimated coefficients
+  vector[N] ywd = fwt(y);                            // wavelet coefficients input
+  real sigma0 = sd(ywd[1 : (N / 2)]);                // initial estimate sigma
+  real tau0 = m0 / (1 - m0) * sigma0 / sqrt(N - 1);  // irrelevance scale
+}
+parameters {
+  real<lower=0> sigma;        // noise standard deviation
+  real<lower=0> tau;          // global scale horseshoe
+  vector[M] z;                // unscaled estimated coefficients
+  vector<lower=0>[M] lambda;  // local scales horseshoe
+}
+transformed parameters {
+  // regularized (sparse) wavelet coefficients
+  vector[N] fwd = rep_vector(0.0, N);
+  fwd[(N - M) : (N - 1)] = (tau * lambda ./ sqrt(1 + square(tau * lambda))) .* z;
+  fwd[N] = ywd[N];
+}
+model {  
+  // (sparse) priors
+  lambda ~ cauchy(0, 1);
+  sigma ~ normal(sigma0, 5 * sigma0);
+  tau ~ normal(0, tau0);
+  z ~ std_normal();
+  // likelhood contributions
+  ywd[1 : (N - 1)] ~ normal(fwd[1 : (N - 1)], sigma);
+}
+generated quantities {
+  // back-transformed coefficients
+  vector[N] f = iwt(fwd);
+}
+
+```
+
+
+We compile the model with `cmdstanr` and draw 1000 (after 1000 warm-up samples) per chain from 4 individual chains as before. For the expected fraction of non-zero wavelet coefficients, we use $m_0 = 0.05$, which is quite conservative given our prior knowledge on the sparseness of the signal.
+
+```{r, eval = TRUE, out.lines = 11}
+## compile model
+step2_model <- cmdstan_model("step2.stan", include_paths = ".")
+
+## draw samples
+step2_fit <- step2_model$sample(
+  data = list(N = N, y = y, m0 = 0.05),
+  chains = 4,
+  iter_sampling = 1000,
+  iter_warmup = 1000
+)
+```
+
+```{r, eval = TRUE}
+## sampling results
+step2_fit
+```
+
+```{r, eval = TRUE}
+## sampling diagnostics
+step2_fit$cmdstan_diagnose()
+```
+In contrast to the first estimation attempt in `step1.stan`, the sampling diagnostics now produce satisfying results as we have reparametrized the model to avoid the problematic log-likelihood gradient. 
+
+Below, we plot the posterior median of $f$ as well as 90%- and 99%-credible bands (pointwise in time):
+
+```{r, echo = FALSE, eval = TRUE}
+fdraws <- array(step2_fit$draws(variable = "f"), dim = c(4000, N))
+fdata <- data.frame(
+  x = x,
+  y = y,
+  median = apply(fdraws, 2, median),
+  lower_99 = apply(fdraws, 2, quantile, probs = 0.005),
+  upper_99 = apply(fdraws, 2, quantile, probs = 0.995),
+  lower_90 = apply(fdraws, 2, quantile, probs = 0.05),
+  upper_90 = apply(fdraws, 2, quantile, probs = 0.95)
+)
+
+ggplot(data = fdata, aes(x = x)) + 
+  geom_ribbon(aes(ymin = lower_99, ymax = upper_99), fill = "grey70", color = NA, alpha = 0.5) + 
+  geom_ribbon(aes(ymin = lower_90, ymax = upper_90), fill = "grey40", color = NA, alpha = 0.5) +
+  geom_line(aes(y = median), color = "black", lwd = 1) + 
+  geom_point(aes(y = y), alpha = 0.25) + 
+  theme_light() +
+  labs(x = "Time", y = "Response", title = bquote("Posterior median, 90%- and 99%-credible intervals" ~ f(x) ~ "pointwise in time"))
+```
+
+## Blocks test function
+
+To conclude, we apply the same sampling procedure to a more challenging example using the `blocks` test function available through `DJ.EX()` in the `wavethresh`-package, see also [@N08, Ch. 3]. The observations $y_1, \ldots, y_n$ with $n = 256$ are sampled from a signal plus i.i.d. Gaussian noise model as before:
+
+```{r, eval = TRUE}
+library(wavethresh)
+
+## data
+set.seed(1)
+N <- 256
+x <- (1:N) / N
+f <- DJ.EX(n = N, signal = 1)$blocks
+y <- DJ.EX(n = N, signal = 1, rsnr = 5, noisy = TRUE)$blocks
+
+ggplot(data = data.frame(x = x, y = y, f = f), aes(x = x)) + 
+  geom_line(aes(y = f), lty = 2, color = "grey50") + 
+  geom_point(aes(y = y)) +
+  theme_light() +
+  labs(x = "Time", y = "Response", title = "Blocks test function with i.i.d. Gaussian noise (N = 256)")
+```
+We draw 1000 posterior samples (after 1000 warm-up samples) per chain from 4 individual chains, with the expected fraction of non-zero wavelet coefficients set to $m_0 = 0.05$ as before. Note that the number of breakpoints present in the signal does not need to be known prior to fitting the model. 
+
+```{r, eval = TRUE, out.lines = 11}
+## draw samples
+blocks_fit <- step2_model$sample(
+  data = list(N = N, y = y, m0 = 0.05),
+  chains = 4,
+  iter_sampling = 1000,
+  iter_warmup = 1000
+)
+```
+
+The sampling results and diagnostics all look satisfactory:
+
+```{r, eval = TRUE}
+## sampling results
+blocks_fit
+```
+
+```{r, eval = TRUE}
+## sampling diagnostics
+blocks_fit$cmdstan_diagnose()
+```
+
+And finally we evaluate several posterior (pointwise) quantiles of $f(x)$ analogous to the previous example:
+
+```{r, echo = FALSE, eval = TRUE}
+fdraws <- array(blocks_fit$draws(variable = "f"), dim = c(4000, N))
+fdata <- data.frame(
+  x = x,
+  y = y,
+  median = apply(fdraws, 2, median),
+  lower_99 = apply(fdraws, 2, quantile, probs = 0.005),
+  upper_99 = apply(fdraws, 2, quantile, probs = 0.995),
+  lower_90 = apply(fdraws, 2, quantile, probs = 0.05),
+  upper_90 = apply(fdraws, 2, quantile, probs = 0.95)
+)
+
+ggplot(data = fdata, aes(x = x)) + 
+  geom_ribbon(aes(ymin = lower_99, ymax = upper_99), fill = "grey70", color = NA, alpha = 0.5) + 
+  geom_ribbon(aes(ymin = lower_90, ymax = upper_90), fill = "grey40", color = NA, alpha = 0.5) +
+  geom_line(aes(y = median), color = "black", lwd = 1) + 
+  geom_point(aes(y = y), alpha = 0.25) + 
+  theme_light() +
+  labs(x = "Time", y = "Response", title = bquote("Posterior median, 90%- and 99%-credible intervals" ~ f(x) ~ "pointwise in time"))
+```
+
+# Session Info
+
+```{r, eval = TRUE}
+sessionInfo()
+```
+
+# References
+
+[^1]: For convenience, the domain of $f$ is set the unit interval, but this can be extended to the real line as well.
+[^2]: Here, the model is parameterized using the original breakpoints $\gamma_i$ instead of the increments $\tilde{\gamma}_i$ used in the Stan program.
+[^3]: This constraint can be relaxed through the use of so-called *second-generation* wavelets, see e.g. [@JO05].
+[^4]: The wavelet coefficient vector is *extremely* sparse in this example, as the breakpoints are exactly at dyadic locations in the input domain. Piecewise constant signals with breakpoints at non-dyadic locations will result in less sparse representations. 
+
+
