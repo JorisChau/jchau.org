@@ -103,7 +103,7 @@ The function $f: (0,1] \to \mathbb{R}$ is unknown[^1], but is restricted to the 
 $$
 f(x) = \sum_{k = 0}^K \mu_k \mathbb{1}\{ \gamma_{k} < x \leq \gamma_{k + 1}  \}
 $$
-where $\mathbb{1}\{x \in A\}$ denotes the [indicator function](https://en.wikipedia.org/wiki/Indicator_function) and we use the convention that $\gamma_0 = 0$ and $\gamma_{K + 1} = 1$. Based on this representation, the regression coefficients to e x_nstimate are $K + 1$ local means $\mu_0,\ldots, \mu_K \in \mathbb{R}$ and $K$ ordered breakpoints $0 < \gamma_1 < \ldots < \gamma_{K} < 1$.
+where $\mathbb{1}\{x \in A\}$ denotes the [indicator function](https://en.wikipedia.org/wiki/Indicator_function) and we use the convention that $\gamma_0 = 0$ and $\gamma_{K + 1} = 1$. Based on this representation, the regression coefficients to estimate are $K + 1$ local means $\mu_0,\ldots, \mu_K \in \mathbb{R}$ and $K$ ordered breakpoints $0 < \gamma_1 < \ldots < \gamma_{K} < 1$.
 
 Below, we simulate a simple step function $f(x)$ with $K = 3$ breakpoints at regular intervals and unit valued jumps at each breakpoint. The step function $f(x)$ is evaluated at $x_i = i / n$ for $i = 1,\ldots, n$ with $n = 128$, and the noisy observations $y_i$ are sampled from a normal distribution centered around $f(x_i)$ with noise standard deviation $\sigma = 0.2$.
 
@@ -174,7 +174,7 @@ model {
 ```
 
 
-The Stan model compilation and HMC sampling is executed with `cmdstanr`, but could also be performed using `rstan`. Below, we draw 1000 posterior samples per chain (after 1000 warm-up samples) from 4 individual chains:
+The Stan model compilation and HMC sampling is executed with `cmdstanr`, but could also be done with `rstan`. Below, we draw 1000 posterior samples per chain (after 1000 warm-up samples) from 4 individual chains:
 
 ```{r, eval = TRUE, out.lines = 11}
 library(cmdstanr)
@@ -198,7 +198,7 @@ step1_fit
 
 A first look at the sampling results shows that the sampled chains completely failed to converge as indicated e.g. by the `rhat` column. 
 
-Calling the `cmdstan_diagnose()` method of the returned R6-object, essentially all statistics indicate (extremely) poor sampling performance:
+Calling the `cmdstan_diagnose()` method of the returned object, essentially all statistics indicate (extremely) poor sampling performance:
 
 ```{r, eval = TRUE, out.lines = 20}
 ## sampling diagnostics
@@ -207,7 +207,7 @@ step1_fit$cmdstan_diagnose()
 
 As might have already been clear already from the start, the poor sampling performance is primarily caused by the discrete jumps in $f$ at the breakpoints $\boldsymbol{\gamma}$, which introduce discontinuities in the gradient of the joint (log-)likelihood as specifically warned for in the [Step-like functions](https://mc-stan.org/docs/2_27/functions-reference/step-functions.html#step-functions) section of Stan's function reference. 
 
-To make this precise with an example, we write out the gradient of the joint log-likelihood analytically when $f$ contains a single breakpoint[^2], i.e. 
+To make this precise with an example, we explicitly write out the gradient of the joint log-likelihood when $f$ contains a single breakpoint[^2], i.e. 
 $$
 f(x) = \mu_0 \mathbb{1}\{x \leq \gamma_1 \} + \mu_1 \mathbb{1}\{x > \gamma_1\} 
 $$
@@ -236,7 +236,7 @@ $$
 \frac{\partial \ell}{\partial \sigma} & \ = \ \frac{n}{\sigma} + \frac{1}{\sigma^3}\sum_{i = 1}^n (y_i - (\mu_0 + (\mu_1 - \mu_0)\mathbb{1}\{x_i > \gamma_1\}))^2
 \end{aligned}
 $$
-The derivative of the log-likelihood with respect to $\gamma_1$ does not exist at $x_1,\ldots,x_n$ (as $\ell(\gamma_1)$ is discontinuous at these points) and is zero everywhere else. 
+The derivative of the log-likelihood with respect to $\gamma_1$ does not exist at $\{ x_1,\ldots,x_n \}$ (as $\ell(\gamma_1)$ is discontinuous at these points) and is zero everywhere else. 
 
 Suppose that $\gamma_1$ would be known and no longer needs to be estimated. Then the gradient of the log-likelihood consists only of the three partial derivatives listed above, which exist everywhere and are in fact continuous in each marginal direction. Note that this assumption does not make $f$ continuous as a function of $x$, but that does not matter, only the continuity of the gradient matters in order to improves Stan's sampling performance. 
 
@@ -304,11 +304,11 @@ Obviously, the breakpoints $\boldsymbol{\gamma}$ cannot assumed to be known in a
 
 # Attempt #2
 
-In a second attempt, we no longer try to explicitly model the breakpoint parameters $\boldsymbol{\gamma}$. Instead, the idea is to allow for a possible discrete jump at every location $x_i$ for $i = 1, \ldots, n$. Without any type of regularization, such a model would be heavily overparameterized requiring the same amount of parameters as the number of observations. However, the function $f(x)$ is assumed to be piecewise constant, so we can use the fact that most jump sizes are zero and only few non-zero jumps should be sufficient to capture the behavior of $f(x)$. 
+In a second attempt, we no longer try to explicitly model the breakpoint parameters $\boldsymbol{\gamma}$. Instead, the idea is to allow for a possible discrete jump at every location $x_i$ for $i = 1, \ldots, n$. Without any type of regularization, such a model would be heavily overparameterized requiring the same number of parameters as the number of observations. However, the function $f(x)$ is piecewise constant, so we can use the fact that most jump sizes are actually zero and only few non-zero jumps should be sufficient to capture the behavior of $f(x)$. 
 
 ## Discrete Haar wavelet transform
 
-To make this idea concrete, we will decompose the input vector $y_1,\ldots,y_n$ according to a discrete [Haar wavelet transform](https://en.wikipedia.org/wiki/Haar_wavelet), which is a **linear** transformation that expands the $n$-dimensional input vector $y_1,\ldots,y_n$ into an $(n-1)$-dimensional vector of *wavelet* (or difference) coefficients $d_1,\ldots,d_{n-1}$ and a single *scaling* (or average) coefficient $c_0$. The discrete Haar wavelet transform is the most basic wavelet transform and is particularly well-suited to decompose piecewise constant signals, which generally produce very sparse Haar wavelet coefficient vectors with most wavelet coefficients equal to zero. For a description of the discrete Haar wavelet transform and more general usage of wavelets in statistics, see e.g. [@N08] or [@J12]. 
+To make this idea concrete, we will decompose the input vector $y_1,\ldots,y_n$ according to a discrete [Haar wavelet transform](https://en.wikipedia.org/wiki/Haar_wavelet), which is a **linear** transformation that expands the $n$-dimensional input vector $y_1,\ldots,y_n$ into an $(n-1)$-dimensional vector of *wavelet* (or difference) coefficients $d_1,\ldots,d_{n-1}$ and a single *scaling* (or average) coefficient $c_0$. The discrete Haar wavelet transform is the most basic wavelet transform and is particularly well-suited to decompose piecewise constant signals, which generally produce very sparse Haar wavelet coefficient vectors with most wavelet coefficients equal to zero. For a description of the discrete Haar wavelet transform and a more general introduction to the use of wavelets in statistics, see e.g. [@N08] or [@J12]. 
 
 For simplicity, in the remainder of this post it is assumed that the number of observations is dyadic, i.e. $n = 2^J$ for some integer $J$, which is a common assumption in the context of wavelet regression[^3]. Given the input signal $f(x_1),\ldots,f(x_n)$, it is quite straightforward to encode the forward Haar transform in a recursive fashion:
 
