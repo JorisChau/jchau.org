@@ -1,7 +1,7 @@
 ---
 title: Step function regression in Stan
 author: Joris Chau
-date: '2021-06-16T18:05:00+02:00'
+date: '2021-06-16T16:45:00+02:00'
 slug: step-function-regression-in-stan
 categories:
   - Statistics
@@ -17,7 +17,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2021-06-16T18:05:00+02:00'
+lastmod: '2021-06-16T16:45:00+02:00'
 featured: no
 image:
   caption: ''
@@ -184,7 +184,7 @@ step1_fit
 <p>Calling the <code>cmdstan_diagnose()</code> method of the returned object, essentially all statistics indicate (extremely) poor sampling performance:</p>
 <pre class="r"><code>## sampling diagnostics
 step1_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpjXZCai/step1-202106161801-1-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-2-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-3-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-4-1457b4.csv
+#&gt; Processing csv files: /tmp/Rtmp4e8Bg8/step1-202106161837-1-146258.csv, /tmp/Rtmp4e8Bg8/step1-202106161837-2-146258.csv, /tmp/Rtmp4e8Bg8/step1-202106161837-3-146258.csv, /tmp/Rtmp4e8Bg8/step1-202106161837-4-146258.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; 149 of 4000 (3.7%) transitions hit the maximum treedepth limit of 10, or 2^10 leapfrog steps.
@@ -305,7 +305,7 @@ step1a_fit
 #&gt;  # showing 10 of 139 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 step1a_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpjXZCai/step1a-202106161801-1-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-2-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-3-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-4-36b3b4.csv
+#&gt; Processing csv files: /tmp/Rtmp4e8Bg8/step1a-202106161837-1-36be58.csv, /tmp/Rtmp4e8Bg8/step1a-202106161837-2-36be58.csv, /tmp/Rtmp4e8Bg8/step1a-202106161837-3-36be58.csv, /tmp/Rtmp4e8Bg8/step1a-202106161837-4-36be58.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
@@ -379,7 +379,7 @@ for(l in 1:log2(N)) {
 
 all.equal(f, f1)
 #&gt; [1] TRUE</code></pre>
-<p>The following functions encodes the discrete (forward and backward) Haar wavelet transform in Stan and are saved in a file named <code>haar.stan</code>:</p>
+<p>The following functions encode the discrete (forward and backward) Haar wavelet transform in Stan and are saved in a file named <code>haar.stan</code>:</p>
 <pre class="stan"><code>// haar.stan
 
 // filter C coefficient vector
@@ -590,7 +590,7 @@ step2_fit
 #&gt;  # showing 10 of 385 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 step2_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpjXZCai/step2-202106161802-1-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-2-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-3-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-4-1855e2.csv
+#&gt; Processing csv files: /tmp/Rtmp4e8Bg8/step2-202106161838-1-186086.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-2-186086.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-3-186086.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-4-186086.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
@@ -666,7 +666,7 @@ blocks_fit
 #&gt;  # showing 10 of 769 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 blocks_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpjXZCai/step2-202106161802-1-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-2-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-3-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-4-0eb832.csv
+#&gt; Processing csv files: /tmp/Rtmp4e8Bg8/step2-202106161838-1-0ec2d6.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-2-0ec2d6.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-3-0ec2d6.csv, /tmp/Rtmp4e8Bg8/step2-202106161838-4-0ec2d6.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
