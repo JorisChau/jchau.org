@@ -106,3 +106,19 @@ minify:
       precision: 0
     xml:
       keepWhitespace: true
+frontmatter:
+  date:
+  - date
+  - publishDate
+  - lastmod
+  expiryDate:
+  - expiryDate
+  lastmod:
+  - lastmod
+  - date
+  - :git
+  - publishDate
+  publishDate:
+  - publishDate
+  - date
+  
