@@ -1,7 +1,7 @@
 ---
 title: Step function regression in Stan
 author: Joris Chau
-date: '2021-06-16T18:00:00+02:00'
+date: '2021-06-16T18:05:00+02:00'
 slug: step-function-regression-in-stan
 categories:
   - Statistics
@@ -17,7 +17,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2021-06-16T18:00:00+02:00'
+lastmod: '2021-06-16T18:05:00+02:00'
 featured: no
 image:
   caption: ''

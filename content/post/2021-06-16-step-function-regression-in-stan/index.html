@@ -1,7 +1,7 @@
 ---
 title: Step function regression in Stan
 author: Joris Chau
-date: '2021-06-16T18:00:00+02:00'
+date: '2021-06-16T18:05:00+02:00'
 slug: step-function-regression-in-stan
 categories:
   - Statistics
@@ -17,7 +17,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2021-06-16T18:00:00+02:00'
+lastmod: '2021-06-16T18:05:00+02:00'
 featured: no
 image:
   caption: ''
@@ -167,42 +167,42 @@ step1_fit &lt;- step1_model$sample(
 ....</code></pre>
 <pre class="r"><code>## sampling results
 step1_fit
-#&gt;      variable    mean  median    sd   mad      q5   q95  rhat ess_bulk ess_tail
-#&gt;  lp__         -103.04 -137.01 78.36 38.58 -166.26 28.15  3.99        4        4
-#&gt;  mu[1]           0.64    0.73  0.55  0.56   -0.19  1.30  4.07        4       NA
-#&gt;  mu[2]          -0.52   -0.60  1.28  1.71   -1.97  1.10  9.40        4       NA
-#&gt;  mu[3]           1.17    0.62  1.48  0.78   -0.21  3.65 17.07        4       NA
-#&gt;  mu[4]           0.27   -0.34  1.37  0.59   -0.83  2.59  4.09        4        4
-#&gt;  sigma           1.46    1.66  0.63  0.52    0.47  2.05  6.15        4       NA
-#&gt;  gamma_inc[1]    0.18    0.10  0.17  0.05    0.05  0.48 10.99        4       NA
-#&gt;  gamma_inc[2]    0.13    0.11  0.10  0.10    0.02  0.27  9.86        4       NA
-#&gt;  gamma_inc[3]    0.42    0.44  0.08  0.07    0.29  0.52  4.25        4       NA
-#&gt;  gamma_inc[4]    0.26    0.24  0.17  0.20    0.06  0.50  4.44        4        4
+#&gt;      variable    mean  median    sd   mad      q5   q95 rhat ess_bulk ess_tail
+#&gt;  lp__         -105.99 -136.58 88.82 50.25 -192.73 41.93  Inf        4       NA
+#&gt;  mu[1]           1.13    1.35  0.60  0.39    0.15  1.66  Inf        4       NA
+#&gt;  mu[2]           0.85    0.75  0.63  0.72    0.17  1.75  Inf        4       NA
+#&gt;  mu[3]           0.34    0.08  1.33  1.48   -1.05  2.23  Inf        4       NA
+#&gt;  mu[4]           1.32    1.45  1.01  1.06   -0.19  2.54  Inf        4       NA
+#&gt;  sigma           1.70    1.47  1.12  0.92    0.39  3.48  Inf        4       NA
+#&gt;  gamma_inc[1]    0.35    0.31  0.28  0.34    0.07  0.72  Inf        4       NA
+#&gt;  gamma_inc[2]    0.22    0.18  0.08  0.02    0.16  0.35  Inf        4       NA
+#&gt;  gamma_inc[3]    0.24    0.17  0.21  0.15    0.04  0.58  Inf        4       NA
+#&gt;  gamma_inc[4]    0.19    0.11  0.18  0.09    0.03  0.50  Inf        4       NA
 #&gt; 
 #&gt;  # showing 10 of 143 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <p>A first look at the sampling results shows that the sampled chains completely failed to converge as indicated e.g. by the <code>rhat</code> column.</p>
 <p>Calling the <code>cmdstan_diagnose()</code> method of the returned object, essentially all statistics indicate (extremely) poor sampling performance:</p>
 <pre class="r"><code>## sampling diagnostics
 step1_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpN8jXlD/step1-202106161754-1-6b5315.csv, /tmp/RtmpN8jXlD/step1-202106161754-2-6b5315.csv, /tmp/RtmpN8jXlD/step1-202106161754-3-6b5315.csv, /tmp/RtmpN8jXlD/step1-202106161754-4-6b5315.csv
+#&gt; Processing csv files: /tmp/RtmpjXZCai/step1-202106161801-1-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-2-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-3-1457b4.csv, /tmp/RtmpjXZCai/step1-202106161801-4-1457b4.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
-#&gt; 299 of 4000 (7.5%) transitions hit the maximum treedepth limit of 10, or 2^10 leapfrog steps.
+#&gt; 149 of 4000 (3.7%) transitions hit the maximum treedepth limit of 10, or 2^10 leapfrog steps.
 #&gt; Trajectories that are prematurely terminated due to this limit will result in slow exploration.
 #&gt; For optimal performance, increase this limit.
 #&gt; 
 #&gt; Checking sampler transitions for divergences.
-#&gt; 3701 of 4000 (93%) transitions ended with a divergence.
+#&gt; 3851 of 4000 (96%) transitions ended with a divergence.
 #&gt; These divergent transitions indicate that HMC is not fully able to explore the posterior distribution.
 #&gt; Try increasing adapt delta closer to 1.
 #&gt; If this doesn&#39;t remove all divergences, try to reparameterize the model.
 #&gt; 
 #&gt; Checking E-BFMI - sampler transitions HMC potential energy.
-#&gt; The E-BFMI, 0.0037, is below the nominal threshold of 0.3 which suggests that HMC may have trouble exploring the target distribution.
+#&gt; The E-BFMI, 0.0039, is below the nominal threshold of 0.3 which suggests that HMC may have trouble exploring the target distribution.
 #&gt; If possible, try to reparameterize the model.
 #&gt; 
 #&gt; The following parameters had fewer than 0.001 effective draws per transition:
-#&gt;   mu[2], mu[3], mu[4], sigma, gamma_inc[1], gamma_inc[2], gamma_inc[3], gamma_inc[4], gamma[2], gamma[3], gamma[4], f[10], f[11], f[12], f[13], f[14], f[15], f[16], f[17], f[18], f[19], f[20], f[21], f[22], f[23], f[24], f[25], f[26], f[27], f[28], f[29], f[30], f[31], f[32], f[33], f[34], f[35], f[36], f[37], f[38], f[39], f[40], f[41], f[42], f[43], f[44], f[45], f[46], f[47], f[48], f[49], f[50], f[51], f[52], f[53], f[54], f[55], f[56], f[57], f[58], f[59], f[60], f[61], f[62], f[63], f[64], f[65], f[66], f[67], f[68], f[69], f[70], f[71], f[72], f[73], f[74], f[75], f[76], f[77], f[78], f[79], f[80], f[81], f[82], f[83], f[84], f[85], f[86], f[87], f[88], f[89], f[90], f[91], f[92], f[93], f[94], f[95], f[96], f[97], f[98], f[99], f[100], f[101], f[102], f[103], f[104], f[105], f[106], f[107], f[108], f[109], f[110], f[111], f[112], f[113], f[114], f[115], f[116], f[117], f[118], f[119], f[120], f[121], f[122], f[123], f[124], f[125], f[126], f[127], f[128]
+#&gt;   mu[1], mu[2], mu[3], mu[4], gamma_inc[2], gamma_inc[3], gamma_inc[4], gamma[3], gamma[4], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10], f[11], f[12], f[13], f[14], f[15], f[16], f[17], f[18], f[19], f[20], f[21], f[22], f[23], f[24], f[25], f[26], f[27], f[28], f[29], f[30], f[31], f[32], f[33], f[34], f[35], f[36], f[37], f[38], f[39], f[40], f[41], f[42], f[43], f[44], f[45], f[46], f[47], f[48], f[49], f[50], f[51], f[52], f[53], f[54], f[55], f[56], f[57], f[58], f[59], f[60], f[61], f[62], f[63], f[64], f[65], f[66], f[67], f[68], f[69], f[70], f[71], f[72], f[73], f[74], f[75], f[76], f[77], f[78], f[79], f[80], f[81], f[82], f[83], f[84], f[85], f[86], f[87], f[88], f[89], f[90], f[91], f[92], f[93], f[94], f[95], f[96], f[97], f[98], f[99], f[100], f[101], f[102], f[103], f[104], f[105], f[106], f[107], f[108], f[109], f[110], f[111], f[112], f[113], f[114], f[115], f[116], f[117], f[118], f[119], f[120], f[121], f[122], f[123], f[124], f[125], f[126], f[127], f[128]
 #&gt; Such low values indicate that the effective sample size estimators may be biased high and actual performance may be substantially lower than quoted.
 ....</code></pre>
 <p>As might have already been clear already from the start, the poor sampling performance is primarily caused by the discrete jumps in <span class="math inline">\(f\)</span> at the breakpoints <span class="math inline">\(\boldsymbol{\gamma}\)</span>, which introduce discontinuities in the gradient of the joint (log-)likelihood as specifically warned for in the <a href="https://mc-stan.org/docs/2_27/functions-reference/step-functions.html#step-functions">Step-like functions</a> section of Stan’s function reference.</p>
@@ -291,12 +291,12 @@ step1a_fit &lt;- step1a_model$sample(
 <pre class="r"><code>## sampling results
 step1a_fit
 #&gt;  variable   mean median   sd  mad     q5    q95 rhat ess_bulk ess_tail
-#&gt;  lp__     156.73 157.09 1.65 1.43 153.62 158.71 1.00     2143     2706
-#&gt;  mu[1]      0.02   0.02 0.03 0.03  -0.03   0.07 1.00     4623     3067
-#&gt;  mu[2]      1.04   1.04 0.03 0.03   0.98   1.09 1.00     4650     3030
-#&gt;  mu[3]      2.03   2.03 0.03 0.03   1.98   2.08 1.00     5447     2740
-#&gt;  mu[4]      3.00   3.00 0.03 0.03   2.95   3.05 1.00     5001     3176
-#&gt;  sigma      0.18   0.18 0.01 0.01   0.16   0.20 1.00     4839     2637
+#&gt;  lp__     156.69 157.04 1.69 1.49 153.34 158.72 1.00     2006     2418
+#&gt;  mu[1]      0.02   0.02 0.03 0.03  -0.03   0.08 1.00     5077     2661
+#&gt;  mu[2]      1.04   1.04 0.03 0.03   0.98   1.09 1.00     5144     2942
+#&gt;  mu[3]      2.03   2.03 0.03 0.03   1.98   2.08 1.00     5629     3007
+#&gt;  mu[4]      3.00   3.00 0.03 0.03   2.95   3.05 1.00     5126     2740
+#&gt;  sigma      0.18   0.18 0.01 0.01   0.16   0.20 1.00     4458     2698
 #&gt;  gamma[1]   0.00   0.00 0.00 0.00   0.00   0.00   NA       NA       NA
 #&gt;  gamma[2]   0.25   0.25 0.00 0.00   0.25   0.25   NA       NA       NA
 #&gt;  gamma[3]   0.50   0.50 0.00 0.00   0.50   0.50   NA       NA       NA
@@ -305,7 +305,7 @@ step1a_fit
 #&gt;  # showing 10 of 139 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 step1a_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpN8jXlD/step1a-202106161755-1-42cec3.csv, /tmp/RtmpN8jXlD/step1a-202106161755-2-42cec3.csv, /tmp/RtmpN8jXlD/step1a-202106161755-3-42cec3.csv, /tmp/RtmpN8jXlD/step1a-202106161755-4-42cec3.csv
+#&gt; Processing csv files: /tmp/RtmpjXZCai/step1a-202106161801-1-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-2-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-3-36b3b4.csv, /tmp/RtmpjXZCai/step1a-202106161801-4-36b3b4.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
@@ -576,21 +576,21 @@ step2_fit &lt;- step2_model$sample(
 <pre class="r"><code>## sampling results
 step2_fit
 #&gt;  variable   mean median   sd  mad     q5    q95 rhat ess_bulk ess_tail
-#&gt;     lp__  -69.38 -69.08 8.92 8.87 -84.69 -55.35 1.00     1442     2168
-#&gt;     sigma   0.18   0.18 0.01 0.01   0.16   0.20 1.00     5206     2427
-#&gt;     tau     0.00   0.00 0.00 0.00   0.00   0.00 1.00     5085     2617
-#&gt;     z[1]    0.01   0.01 1.02 1.03  -1.68   1.68 1.00     5596     2866
-#&gt;     z[2]   -0.02  -0.01 1.02 1.03  -1.67   1.63 1.00     5567     2404
-#&gt;     z[3]   -0.02  -0.02 0.98 0.97  -1.60   1.61 1.00     6856     2632
-#&gt;     z[4]   -0.06  -0.07 0.97 0.95  -1.69   1.54 1.00     5176     2456
-#&gt;     z[5]    0.00   0.01 0.98 1.00  -1.61   1.63 1.00     6371     2610
-#&gt;     z[6]    0.07   0.09 1.00 1.03  -1.58   1.69 1.00     6616     2927
-#&gt;     z[7]    0.02   0.03 1.02 1.03  -1.66   1.67 1.00     6606     2786
+#&gt;     lp__  -69.75 -69.58 9.20 9.44 -85.25 -55.05 1.00     1084     1954
+#&gt;     sigma   0.18   0.18 0.01 0.01   0.16   0.20 1.00     4411     3292
+#&gt;     tau     0.00   0.00 0.00 0.00   0.00   0.00 1.00     4376     2659
+#&gt;     z[1]   -0.04  -0.05 1.01 1.01  -1.63   1.61 1.00     6083     2605
+#&gt;     z[2]   -0.04  -0.05 1.00 0.97  -1.65   1.59 1.00     6483     2697
+#&gt;     z[3]    0.00  -0.02 1.04 1.05  -1.69   1.70 1.00     5897     2130
+#&gt;     z[4]   -0.06  -0.08 1.04 1.07  -1.74   1.65 1.00     5885     2644
+#&gt;     z[5]   -0.02  -0.02 1.01 1.00  -1.70   1.61 1.00     6283     2566
+#&gt;     z[6]    0.07   0.06 0.99 1.00  -1.53   1.68 1.00     5923     2462
+#&gt;     z[7]    0.02   0.01 1.01 1.01  -1.62   1.67 1.00     6808     2943
 #&gt; 
 #&gt;  # showing 10 of 385 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 step2_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpN8jXlD/step2-202106161755-1-039b78.csv, /tmp/RtmpN8jXlD/step2-202106161755-2-039b78.csv, /tmp/RtmpN8jXlD/step2-202106161755-3-039b78.csv, /tmp/RtmpN8jXlD/step2-202106161755-4-039b78.csv
+#&gt; Processing csv files: /tmp/RtmpjXZCai/step2-202106161802-1-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-2-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-3-1855e2.csv, /tmp/RtmpjXZCai/step2-202106161802-4-1855e2.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
@@ -666,7 +666,7 @@ blocks_fit
 #&gt;  # showing 10 of 769 rows (change via &#39;max_rows&#39; argument)</code></pre>
 <pre class="r"><code>## sampling diagnostics
 blocks_fit$cmdstan_diagnose()
-#&gt; Processing csv files: /tmp/RtmpN8jXlD/step2-202106161755-1-0eb0cb.csv, /tmp/RtmpN8jXlD/step2-202106161755-2-0eb0cb.csv, /tmp/RtmpN8jXlD/step2-202106161755-3-0eb0cb.csv, /tmp/RtmpN8jXlD/step2-202106161755-4-0eb0cb.csv
+#&gt; Processing csv files: /tmp/RtmpjXZCai/step2-202106161802-1-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-2-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-3-0eb832.csv, /tmp/RtmpjXZCai/step2-202106161802-4-0eb832.csv
 #&gt; 
 #&gt; Checking sampler transitions treedepth.
 #&gt; Treedepth satisfactory for all transitions.
