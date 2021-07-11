@@ -1,0 +1,553 @@
+---
+title: Asymptotic confidence intervals for NLS regression in R
+author: Joris Chau
+date: '2021-07-11'
+slug: asymptotic-confidence-intervals-for-nls-regression-in-r
+categories:
+  - Statistics
+  - R
+tags:
+  - Nonlinear least squares
+  - Asymptotic confidence intervals
+  - Delta method
+  - Linear approximation
+  - Prediction intervals
+  - R
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-07-11T19:10:00+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: yes
+projects: []
+references:
+- id: SW03
+  title: Nonlinear Regression
+  author:
+    - family: Seber
+      given: G.A.F.
+    - family: Wild
+      given: C.J.
+  type: "book"
+  issued:
+    year: 2003
+- id: A85
+  title: Advanced Econometrics
+  author:
+    - family: Amemiya
+      given: T.
+  type: "book"
+  issued:
+    year: 1985
+- id: BW88
+  title: Nonlinear Regression Analysis and Its Applications
+  author:
+    - family: Bates
+      given: D.M.
+    - family: Watts
+      given: D.G.
+  type: "book"
+  issued:
+    year: 1988
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE, eval = TRUE,
+                      fig.align = "center", comment = "#>", out.width = "100%")
+
+# save the built-in output hook
+hook_output <- knitr::knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knitr::knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+```
+
+# Introduction
+
+## Nonlinear regression model
+
+As a model setup, we consider noisy observations $y_1,\ldots, y_n \in \mathbb{R}$ obtained from a standard nonlinear regression model of the form:
+
+$$ 
+\begin{aligned}
+y_i &\ = \ f(\boldsymbol{x}_i, \boldsymbol{\theta}) + \epsilon_i, \quad i = 1,\ldots, n
+\end{aligned}
+$$
+where $f: \mathbb{R}^k \times \mathbb{R}^p \to \mathbb{R}$ is a known **nonlinear** function of the independent variables $\boldsymbol{x}_1,\ldots,\boldsymbol{x}_n \in \mathbb{R}^k$ and the unknown parameter vector $\boldsymbol{\theta} \in \mathbb{R}^p$ that we aim to estimate. The noise variables $\epsilon_1, \ldots, \epsilon_n$ are assumed to be i.i.d. (not necessarily normally distributed) with $\mathbb{E}[\epsilon_i] = 0$ and $\text{Var}(\epsilon_i) = \sigma^2$.
+
+## Least squares estimation
+
+In order to obtain a **least squares** estimate $\hat{\boldsymbol{\theta}}$ of the parameter vector $\boldsymbol{\theta}$, we minimize the error sum of squares according to:
+
+$$
+\hat{\boldsymbol{\theta}} \ = \ \arg \min_{\boldsymbol{\theta}} \sum_{i = 1}^n [y_i - f(\boldsymbol{x}_i, \boldsymbol{\theta})]^2
+$$
+
+Different optimization routines to minimize the above least squares criterion are available in base R (`stats`) or through a number of external R-packages and functions, see e.g. the *Optimization and Mathematical Programming* [CRAN Task View](https://cran.r-project.org/web/views/Optimization.html) for a comprehensive overview. In this post, we will focus on least-squares optimization using R's default `nls()` function and the function `nls.lm()` from the [minpack.lm](https://CRAN.R-project.org/package=minpack.lm)-package, which performs least-squares optimization through a modification of the [Levenberg-Marquadt](https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm) algorithm.
+
+### Example 1: First-order reaction model
+
+As a first example, let us generate $n = 25$ noisy observations from a nonlinear first-order reaction model $f: \mathbb{R} \times \mathbb{R}^2 \to \mathbb{R}$ of the form:
+
+$$
+f(x, \boldsymbol{\theta}) \ = \ \theta_1 \cdot (1 - \exp(-\exp(\theta_2) \cdot x))
+$$
+with unknown parameter vector $\boldsymbol{\theta} = (\theta_1, \theta_2)' \in \mathbb{R}^2$. Here, the parameter $\theta_1$ can be interpreted as the horizontal asymptote (as $x \to \infty$) and $\exp(\theta_2)$ corresponds to the rate constant in the reaction model.
+
+The function values of $f(x, \boldsymbol{\theta})$ (as well as its gradient) can be evaluated directly through the self-start model function `SSasympOrig()`. The true parameter values are set to $\boldsymbol{\theta}^* = (\theta_1 = 1, \theta_2 = 1)'$ and the noise values $\epsilon_1,\ldots,\epsilon_n$ are sampled from a normal distribution with mean zero and standard deviation $\sigma = 0.05$.
+
+```{r}
+library(ggplot2)
+
+## parameters
+n <- 25
+sigma <- 0.05
+theta <- c(Asym = 1, lrc = 1)
+
+## simulate data
+set.seed(1)
+x1 <- (1:n) / n
+f1 <- SSasympOrig(x1, Asym = theta["Asym"], lrc = theta["lrc"])
+y1 <- rnorm(n, mean = f1, sd = sigma)
+
+## plot data and expected response
+ggplot(data = data.frame(x = x1, y = y1, f = f1), aes(x = x)) + 
+  geom_line(aes(y = f), lty = 2, color = "grey50") + 
+  geom_point(aes(y = y)) + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", title = bquote("Simulated data" ~ list(y[1], ldots, y[n]) ~ "first-order reaction model" ~ list(theta[1] == 1, theta[2] == 1)))
+```
+
+Given the noisy observations $y_1,\ldots,y_n$, the least squares estimate $\boldsymbol{\theta}$ is easily obtained with a call to `nls()` again using `SSasympOrig()` to specify the model formula:
+
+```{r}
+## nls estimation with self-start model
+nlsfit1 <- nls(
+  y ~ SSasympOrig(x, Asym, lrc),
+  data = data.frame(x = x1, y = y1)
+)
+
+summary(nlsfit1)
+```
+
+### Example 2: Basic SIR model
+
+As a second example, we look at a nonlinear model function $f(x, \boldsymbol{\theta})$ with no simple closed-form expression, defined implicitly through a system of (ordinary) differential equations. Specifically, we consider $f(x, \boldsymbol{\theta})$ to be the number of **I**nfected individuals in a basic [SIR model](https://en.wikipedia.org/wiki/Compartmental_models_in_epidemiology#The_SIR_model) implicitly defined through the following set of differential equations[^1]:
+
+$$
+\begin{aligned}
+\frac{dS(t)}{dt} & \ = \ - \frac{\beta I(t) S(t)}{N}, \\
+\frac{dI(t)}{dt} & \ = \ \frac{\beta I(t) S(t)}{N} - \gamma I(t)
+\end{aligned}
+$$
+Using the same notation as before, the scalar independent variable $x$ now corresponds to the time $t$, and the nonlinear model function $f(t, \boldsymbol{\theta})$ is given by $I(t)$. The unknown parameters to estimate are $\boldsymbol{\theta} = (\beta, \gamma)'$, and the initial conditions $S(t_0)$ and $I(t_0)$ are assumed to be given. Note that in this example $f(x, \boldsymbol{\theta})$ is treated as a continuous function with as range the complete real line $\mathbb{R}$, i.e. it is *not* restricted to only nonnegative integer values.
+
+Below, we generate $n = 50$ noisy observations $y_1,\ldots,y_n$ based on a SIR model with true parameters $\boldsymbol{\theta}^* = (\beta = 0.1, \gamma = 0.01)'$ and with errors sampled from a normal distribution with mean zero and standard deviation $\sigma = 2.5$. The initial conditions are set to $S(t_0) = 100$ and $I(t_0) = 2$ and the times are evaluated at regular intervals across the time range $t \in [10, 500]$.
+
+```{r}
+library(deSolve)
+
+## helper function to evaluate f(x, theta)
+sir <- function(x, init, theta) {
+  lsoda(
+    y = init,
+    times = x,
+    func = function(t, y, parms, N) {
+      with(as.list(parms), {
+        list(c(
+          S = -beta * y["I"] * y["S"] / N,
+          I = beta * y["I"] * y["S"] / N - gamma * y["I"]
+        ))
+      })
+    },
+    parms = theta,
+    N = sum(init)
+  )[, "I"]
+}
+
+## parameters
+n <- 50
+sigma <- 2.5
+theta <- c(beta = 0.1, gamma = 0.01)
+init <- c(S = 100, I = 2)
+
+## simulated data
+set.seed(1)
+x2 <- 10 * (1:n)
+f2 <- sir(x2, init, theta)
+y2 <- rnorm(n, mean = f2, sd = sigma)
+
+## plot data and expected response
+ggplot(data = data.frame(x = x2, y = y2, f = f2), aes(x = x)) + 
+  geom_line(aes(y = f), lty = 2, color = "grey50") + 
+  geom_point(aes(y = y)) + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", title = bquote("Simulated data" ~ list(y[1], ldots, y[n]) ~ "infected compartment SIR model" ~ list(beta == 0.1, gamma == 0.01)))
+```
+
+Instead of using the `nls()` function to obtain the least squares estimate $\hat{\boldsymbol{\theta}}$, we minimize the error sum of squares by means of the Levenberg-Marquadt algorithm with a call to `minpack.lm::nls.lm()`[^2]. The `nls.lm()` function requires as input a function `fn` evaluating to the vector of residuals $\{y_i - f(x_i, \boldsymbol{\theta}) \}_{i=1}^n$ for a given parameter vector $\boldsymbol{\theta}$:
+
+```{r}
+library(minpack.lm)
+
+nlsfit2 <- nls.lm(
+  fn = function(par, data, init) {
+    data[["y"]] - sir(data[["x"]], init, par) ## residuals
+  },  
+  par = c(beta = 0, gamma = 0),               ## starting values
+  data = data.frame(x = x2, y = y2),          ## observations
+  init = init                                 ## fixed values
+)
+
+summary(nlsfit2)
+```
+
+# Asymptotic confidence intervals for parameters
+
+## Theory
+
+For sufficiently large $n$, and subject to appropriate regularity assumptions, (such as $f(\boldsymbol{x}, \boldsymbol{\theta})$ being twice continuously differentiable with respect to $\boldsymbol{\theta}$), the least squares estimate $\hat{\boldsymbol{\theta}}$ is approximately normally distributed according to[^3]:
+
+$$
+\hat{\boldsymbol{\theta}} \ \overset{\cdot}{\sim} \ N_p(\boldsymbol{\theta}^*, \sigma^2\left(\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)'\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)   \right)^{-1}) 
+$$
+Here, $\boldsymbol{\theta}^*$ is the true value of $\boldsymbol{\theta}$, and 
+
+$$
+\boldsymbol{F}_{\cdot}(\boldsymbol{\theta}^*) \ = \ \left[ \dfrac{\partial f(\boldsymbol{x}_i, \boldsymbol{\theta})}{\partial \theta_j}\Bigg|_{\boldsymbol{\theta} = \boldsymbol{\theta}^*} \right]_{i,j} \in \mathbb{R}^{n \times p}
+$$
+
+is the matrix of gradient vectors of $f(\boldsymbol{x}, \boldsymbol{\theta})$ evaluated at $\boldsymbol{\theta} = \boldsymbol{\theta}^*$, with the $i$-th row of the matrix corresponding to (the transpose of) the gradient vector $\nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}) \in \mathbb{R}^p$ evaluated at $\boldsymbol{\theta}^*$. 
+
+Replacing $\sigma^2$ by the variance estimate $s^2 = \sum_{i = 1}^n (y_i - f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}))^2 / (n - p)$, an approximate $100(1 - \alpha)\%$ joint confidence region for $\boldsymbol{\theta}^*$ can be constructed by the ellipsoid:
+
+$$
+\big\{ \boldsymbol{\theta} \ : \ (\boldsymbol{\theta} - \hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})(\boldsymbol{\theta} - \hat{\boldsymbol{\theta}}) \leq p s^2 F^{p, n-p}_{1-\alpha} \}
+$$
+where $F^{p, n-p}_{1-\alpha}$ denotes the $1-\alpha$ quantile of an F-distribution with $p$ and $n-p$ degrees of freedom. 
+
+Also, approximate $100(1 - \alpha)\%$ marginal confidence intervals for the individual parameters are given by:
+
+$$
+\Big[ \hat{\theta}_\ell - s \sqrt{\big(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\big)^{-1}_{\ell\ell}} t_{1 - \alpha/2}^{n - p}, \hat{\theta}_\ell + s \sqrt{\big(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\big)^{-1}_{\ell\ell}} t_{1 - \alpha/2}^{n - p} \Big], \quad \text{for}\ \ell = 1,\ldots, n
+$$
+with $\big(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\big)^{-1}_{\ell\ell}$ the $\ell$-th diagonal term of $\big(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\big)^{-1}$, and $t^{n-p}_{1 - \alpha/2}$ the $1 - \alpha/2$ quantile of a t-distribution with $n - p$ degrees of freedom.
+
+The above asymptotic results rely on a linear approximation of $f(\boldsymbol{x}, \boldsymbol{\theta})$ in a small neighborhood of $\boldsymbol{\theta}^*$ in combination with the application of an appropriate central limit theorem (in the context of a linear regression problem). Rigorous proofs can be found in a number of textbooks, for instance [@SW03, Chapters 2 and 12] or [@A85, Chapter 4]. 
+
+#### Remark
+
+If $f(\boldsymbol{x}_i, \boldsymbol{\theta})$ with $\boldsymbol{x}_i, \boldsymbol{\theta} \in \mathbb{R}^p$ is a linear function of $\boldsymbol{\theta}$, i.e. 
+$$
+f(\boldsymbol{x}_i, \boldsymbol{\theta}) \ = \ \boldsymbol{x}_i' \boldsymbol{\theta} \ = \ x_{i1}\theta_1 + \ldots + x_{ip}\theta_p,
+$$
+
+then the gradient matrix $\boldsymbol{F}_{\cdot}(\boldsymbol{\theta})$ is independent of $\boldsymbol{\theta}$ and reduces to the design matrix $\boldsymbol{F}_{\cdot}(\boldsymbol{\theta}) = \boldsymbol{X} \in \mathbb{R}^{n \times p}$ with the $i$-th row of $\boldsymbol{X}$ corresponding to $\boldsymbol{x}_i$. Substituting $\boldsymbol{F}_{\cdot}(\hat{\boldsymbol{\theta}}) = \boldsymbol{X}$ in the above expressions, we obtain the usual asymptotic results for (ordinary) least squares estimation in a multiple linear regression context, see also [@SW03, Appendix D] or [@BW88, Chapter 1].
+
+## Application
+
+Based on the listed asymptotic results, we evaluate marginal (asymptotic) parameter confidence intervals centered around the least squares estimates $\hat{\boldsymbol{\theta}}$ obtained for the example models in the previous section. Where possible we compare the manual calculations to standard methods available for objects of class `nls` and `nls.lm` respectively.
+
+### Example 1 (continued)
+
+First, to evaluate the gradient matrix $\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})$ in the context of the first-order reaction model example, we can make use of the `deriv()` function, which calculates exact (symbolic) derivatives for a number of common mathematical functions and compositions thereof. The `deriv()` function returns an expression, which we evaluate at the given inputs $x_1,\ldots,x_n$ and least squares estimates $\hat{\boldsymbol{\theta}}$.
+
+```{r}
+## symbolic derivative f(x, theta)
+(dtheta <- deriv(~ Asym * (1 - exp(-exp(lrc) * x)), c("Asym", "lrc")))
+```
+
+```{r, out.lines = 10}
+## least squares estimates
+cc <- coef(nlsfit1)
+## gradient matrix
+(Fdot <- attr(eval(dtheta,  envir = list(x = x1, Asym = cc["Asym"], lrc = cc["lrc"])), "gradient"))
+```
+
+The same gradient matrix can also directly be extracted from the the `nls` object itself:
+
+```{r}
+## existing gradient matrix
+Fdot1 <- nlsfit1$m$gradient()
+all.equal(Fdot, Fdot1)
+```
+
+```{r}
+Fdotfit1 <- Fdot ## save for later use
+```
+
+Second, we compute the estimate $s$ for the residual standard deviation $\sigma$, which can either be done manually or using the `sigma()` method for objects of class `nls`:
+
+```{r}
+## residual standard deviation
+s <- sqrt(sum(residuals(nlsfit1)^2) / df.residual(nlsfit1))
+s1 <- sigma(nlsfit1)
+all.equal(s, s1)
+```
+
+The estimated (asymptotic) covariance matrix of $\hat{\boldsymbol{\theta}}$ then follows from $s^2\left(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\right)^{-1}$:
+
+```{r}
+## asymptotic covariance matrix
+Sigma <- s^2 * solve(t(Fdot) %*% Fdot)
+Sigma1 <- vcov(nlsfit1) 
+all.equal(Sigma, Sigma1)
+```
+
+And the marginal parameter confidence intervals are calculated *as usual* by scaling the quantiles of a t-distribution with the standard errors obtained from the diagonal of the estimated (asymptotic) covariance matrix:
+
+```{r}
+## asymptotic ci's
+cc + sqrt(diag(Sigma)) %o% qt(c(0.025, 0.975), df.residual(nlsfit1))
+```
+
+The same confidence intervals can also be obtained directly with `nlstools::confint2()`by setting `method = "asysmptotic"`:
+
+```{r}
+nlstools::confint2(nlsfit1, level = 0.95, method = "asymptotic")
+```
+
+#### Remark 
+
+Inside the `nls()` function, the inverse $(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}}))^{-1}$ is evaluated by means of a [QR decomposion](https://en.wikipedia.org/wiki/QR_decomposition) of $\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})$, i.e. $\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}}) = \boldsymbol{Q}\boldsymbol{R}$ with orthogonal matrix $\boldsymbol{Q}' = \boldsymbol{Q}^{-1}$ and $\boldsymbol{R}$ an upper triangular matrix. The inverse of the matrix product then relies only on the upper triangular matrix $\boldsymbol{R}$, since:
+
+$$
+(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}}))^{-1} = (\boldsymbol{R}'\boldsymbol{Q}'\boldsymbol{Q}\boldsymbol{R})^{-1} = (\boldsymbol{R}'\boldsymbol{Q}^{-1}\boldsymbol{Q}\boldsymbol{R})^{-1} = (\boldsymbol{R}'\boldsymbol{R})^{-1}
+$$
+
+and the expression on the right-hand side can be evaluated efficiently through R's `chol2inv()` function.
+
+```{r}
+## cholesky-based evaluation
+Sigma2 <- s^2 * chol2inv(qr.R(qr(Fdot)))
+all.equal(unname(Sigma), Sigma2)
+```
+
+### Example 2 (continued)
+
+For the basic SIR-model, no simple closed-form expression of $f(x, \boldsymbol{\theta})$ is available, thus we can no longer use the `deriv()` function for exact differentiation of the model function $f$. Instead, we approximate the gradient numerically through [finite differencing](https://en.wikipedia.org/wiki/Finite_difference) with the `numericDeriv()` function:
+
+```{r, out.lines = 10}
+## least squares estimates
+cc <- nlsfit2$par
+
+## numeric approximation gradient matrix
+rho <- list2env(list(x = x2, init = init, beta = cc["beta"], gamma = cc["gamma"]))
+expr <- quote(sir(x, init, theta = c(beta, gamma)))
+(Fdot <- attr(numericDeriv(expr, theta = c("beta", "gamma"), rho), "gradient"))
+```
+
+```{r}
+Fdotfit2 <- Fdot ## save for later use
+```
+
+The estimated residual standard deviation $s$ and asymptotic covariance matrix are computed the same way as before:
+
+```{r}
+## residual standard deviation
+s <- sqrt(sum((y2 - sir(x2, init, cc))^2) / (length(y2) - length(cc)))
+s1 <- sqrt(nlsfit2$deviance / (df.residual(nlsfit2)))
+all.equal(s, s1)
+
+## asymptotic covariance matrix
+(Sigma <- s^2 * solve(t(Fdot) %*% Fdot))
+(Sigma1 <- vcov(nlsfit2))
+```
+
+As well as the marginal parameter confidence intervals:
+
+```{r}
+## asymptotic ci's
+cc + sqrt(diag(Sigma)) %o% qt(c(0.025, 0.975), df.residual(nlsfit2))
+```
+
+The manually calculated confidence intervals are slightly wider than the asymptotic confidence intervals returned by the `confint()` method of an object of class `nls.lm`. This is because the latter uses quantiles from a normal distribution instead of a t-distribution:
+
+```{r}
+confint(nlsfit2, level = 0.95) ## normal quantiles
+```
+
+# Asymptotic confidence intervals for expected response
+
+## Theory
+
+Besides inference with respect to the model parameters, we are often also interested in inference with respect to the nonlinear model function $f(\boldsymbol{x}, \boldsymbol{\theta})$. Subject to the same regularity assumptions as in the previous section, starting from the asymptotic normality of the least squares estimate:
+
+$$
+\hat{\boldsymbol{\theta}} \ \overset{\cdot}{\sim} \ N_p(\boldsymbol{\theta}^*, \sigma^2\left(\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)'\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)   \right)^{-1}) 
+$$
+
+Asymptotic normality of $f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})$ or some other function $g \in \mathcal{C}^1$ of $\boldsymbol{\theta}$ follows by an application of the (multivariate) [delta method](https://en.wikipedia.org/wiki/Delta_method), such that for sufficiently large $n$:
+
+$$
+f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}) \ \overset{\cdot}{\sim} \ N(f(\boldsymbol{x}_i, \boldsymbol{\theta}^*)), \sigma^2 \nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}^*)' \left(\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)'\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)\right)^{-1}\nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}^*))
+$$
+
+where $\nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}^*) \in \mathbb{R}^{p}$ is the gradient vector of $f(\boldsymbol{x}_i, \boldsymbol{\theta})$ evaluated at $\boldsymbol{\theta}^*$, which corresponds to the (transpose of the) $i$-th row of $\boldsymbol{F}_{\cdot}(\boldsymbol{\theta}^*)$. 
+
+Replacing $\sigma^2$ by the same variance estimate as before, $s^2 = \sum_{i = 1}^n (y_i - f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}))^2 / (n - p)$, and evaluating the gradients at $\hat{\boldsymbol{\theta}}$ instead of $\boldsymbol{\theta}^*$, approximate $100(1 - \alpha)\%$ confidence intervals for $f(\boldsymbol{x}_i, \boldsymbol{\theta})$ are constructed as:
+
+$$
+f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}) \pm s \sqrt{\nabla f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})' \left(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\right)^{-1}\nabla f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})} t^{n - p}_{1 - \alpha / 2}
+$$
+
+In order to construct an approximate **prediction** interval for the response $y_i$, we only need to rescale the above standard errors to include an additional variance term $\text{Var}(\epsilon_i) = \sigma^2$, which follows heuristically by decomposing $\text{Var}(y_i - f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}))$ according to:
+
+$$
+\begin{aligned}
+\text{Var}(y_i - f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})) & \ \approx \ \text{Var}(y_i) + \text{Var}(f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})) \\
+& \ \approx \ \sigma^2 + \sigma^2 \nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}^*)' \left(\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)'\boldsymbol{F}_\cdot(\boldsymbol{\theta}^*)\right)^{-1}\nabla f(\boldsymbol{x}_i, \boldsymbol{\theta}^*)
+\end{aligned}
+$$
+The first step relies on the asymptotic independence of $\epsilon_i$ and $\hat{\boldsymbol{\theta}}$ (see [@SW03, Ch. 2]), and the second step follows by plugging in the asymptotic variance of $f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})$ obtained via the delta method above. For a more detailed description, see [@SW03, Ch. 5].
+
+By substituting $s^2$ for $\sigma^2$ and evaluating the gradients at the least squares estimate $\hat{\boldsymbol{\theta}}$, approximate $100(1 - \alpha)\%$ prediction intervals for the individual response $y_i$ can be constructed as:
+
+$$
+f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}}) \pm s \sqrt{1 + \nabla f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})' \left(\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})'\boldsymbol{F}_\cdot(\hat{\boldsymbol{\theta}})\right)^{-1}\nabla f(\boldsymbol{x}_i, \hat{\boldsymbol{\theta}})} t^{n - p}_{1 - \alpha / 2}
+$$
+
+### Remark
+
+Note that if we again consider a linear model function $f(\boldsymbol{x}_i, \boldsymbol{\theta}) = \boldsymbol{x}_i'\boldsymbol{\theta}$ with $\boldsymbol{x}_i, \boldsymbol{\theta} \in \mathbb{R}^p$, then the confidence intervals for the expected response reduce to:
+
+$$
+\boldsymbol{x}_i'\hat{\boldsymbol{\theta}} \pm s \sqrt{\boldsymbol{x}_i'(\boldsymbol{X}'\boldsymbol{X})^{-1}\boldsymbol{x}_i} t^{n-p}_{1 - \alpha/2}
+$$
+which corresponds to the standard asymptotic results for ordinary least squares estimation in a multiple linear regression context, see [@BW88, Chapter 1].
+
+## Application
+
+We evaluate the approximate confidence intervals for the expected responses, as well as the approximate prediction intervals for the individual responses, based on the least squares estimates $\hat{\boldsymbol{\theta}}$ obtained for the example models above. The gradients necessary to construct the confidence and prediction intervals can be recycled directly from the previous section, we only need to combine the available terms according to the above expressions.
+
+### Example 1 (continued)
+
+#### Confidence intervals for the expected response
+
+```{r, out.lines = 10}
+## asymptotic ci's expected response
+fit <- fitted(nlsfit1)
+Fdot <- Fdotfit1
+ses <- sigma(nlsfit1) * sqrt(rowSums(Fdot %*% solve(t(Fdot) %*% Fdot) * Fdot))
+
+ci <- fit + ses %o% qt(c(0.025, 0.975), df.residual(nlsfit1))
+cimat <- cbind(fit = fit, lwr = ci[, 1], upr = ci[, 2])
+```
+
+The same approximate confidence intervals (for objects of class `nls`) can be generated using e.g. the `predFit()` method available through the `investr`-package:
+
+```{r}
+cimat1 <- investr::predFit(nlsfit1, interval = "confidence", level = 0.95)
+all.equal(cimat, cimat1)
+```
+
+```{r}
+## plot least squares fitted response and ci's
+ggplot(data = cbind(data.frame(x = x1, f = f1), cimat), aes(x = x)) + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), color = "grey70", alpha = 0.25, fill = "grey50") + 
+  geom_line(aes(y = f), lty = 2) + 
+  geom_line(aes(y = fit)) + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", subtitle = "First-order reaction model", 
+       title = "Approximate 95%-confidence intervals expected response")
+```
+
+#### Prediction intervals for the responses
+
+```{r, out.lines = 10}
+## asymptotic pi's individual reponses
+ses <- sigma(nlsfit1) * sqrt(1 + rowSums(Fdot %*% solve(t(Fdot) %*% Fdot) * Fdot))
+
+pi <- fit + ses %o% qt(c(0.025, 0.975), df.residual(nlsfit1))
+(pimat <- cbind(fit = fit, lwr = pi[, 1], upr = pi[, 2]))
+```
+
+```{r}
+pimat1 <- investr::predFit(nlsfit1, interval = "prediction", level = 0.95)
+all.equal(pimat, pimat1)
+```
+```{r}
+## plot least squares fitted response and pi's 
+ggplot(data = cbind(data.frame(x = x1, y = y1), pimat), aes(x = x)) + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), color = "grey70", alpha = 0.25, fill = "grey50") + 
+  geom_point(aes(y = y)) + 
+  geom_line(aes(y = fit), color = "black") + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", subtitle = "First-order reaction model", 
+       title = "Approximate 95%-prediction intervals individual responses")
+```
+
+### Example 2 (continued)
+
+For the SIR model fit, we recycle the gradient matrix obtained through numerical differentiation of $f(\boldsymbol{x}_i, \boldsymbol{\theta})$. Note that the `investr::predFit()` method can no longer be used to construct the same confidence and prediction intervals as no implementation is available for objects of class `nls.lm`.
+
+#### Confidence intervals for the expected response
+
+```{r, out.lines = 10}
+## asymptotic ci's expected response
+cc <- nlsfit2$par
+fit <- sir(x2, init = init, theta = cc)
+Fdot <- Fdotfit2
+s <- sqrt(nlsfit2$deviance / df.residual(nlsfit2))
+ses <-  s * sqrt(rowSums(Fdot %*% solve(t(Fdot) %*% Fdot) * Fdot))
+
+ci <- fit + ses %o% qt(c(0.025, 0.975), df.residual(nlsfit2))
+(cimat <- cbind(fit = fit, lwr = ci[, 1], upr = ci[, 2]))
+```
+
+```{r}
+## plot least squares fitted response and ci's
+ggplot(data = cbind(data.frame(x = x2, f = f2), cimat), aes(x = x)) + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), color = "grey70", alpha = 0.25, fill = "grey50") + 
+  geom_line(aes(y = f), lty = 2) + 
+  geom_line(aes(y = fit), color = "black") + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", subtitle = "Infected compartment SIR model", 
+       title = "Approximate 95%-confidence intervals expected response")
+```
+
+#### Prediction intervals for the responses
+
+```{r, out.lines = 10}
+## asymptotic pi's individual reponses
+ses <- s * sqrt(1 + rowSums(Fdot %*% solve(t(Fdot) %*% Fdot) * Fdot))
+
+pi <- fit + ses %o% qt(c(0.025, 0.975), df.residual(nlsfit1))
+(pimat <- cbind(fit = fit, lwr = pi[, 1], upr = pi[, 2]))
+```
+
+```{r}
+## plot least squares fitted response and pi's 
+ggplot(data = cbind(data.frame(x = x2, y = y2), pimat), aes(x = x)) + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), color = "grey70", alpha = 0.25, fill = "grey50") + 
+  geom_point(aes(y = y)) + 
+  geom_line(aes(y = fit)) + 
+  theme_light() +
+  labs(x = "Time (x)", y = "Response (y)", subtitle = "Infected compartment SIR model", 
+       title = "Approximate 95%-prediction intervals individual responses")
+```
+
+# Session Info
+
+```{r, eval = TRUE}
+sessionInfo()
+```
+
+# References
+
+[^1]: The compartment of **R**ecovered individuals is not included as it is not needed here.
+[^2]: Here `nls.lm()` is used instead of `nlsLM()` because we have no closed-form solution of the model function $f(x, \boldsymbol{\theta})$.
+[^3]: Here $\overset{\cdot}{\sim}$ denotes *approximately distributed as*. 
