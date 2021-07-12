@@ -1,11 +1,12 @@
 ---
 title: Asymptotic confidence intervals for NLS regression in R
 author: Joris Chau
-date: '2021-07-11'
+date: '2021-07-12T16:45:00+02:00'
 slug: asymptotic-confidence-intervals-for-nls-regression-in-r
 categories:
   - Statistics
   - R
+  - R-bloggers
 tags:
   - Nonlinear least squares
   - Asymptotic confidence intervals
@@ -16,7 +17,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2021-07-11T19:10:00+02:00'
+lastmod: '2021-07-12T16:45:00+02:00'
 featured: no
 image:
   caption: ''
