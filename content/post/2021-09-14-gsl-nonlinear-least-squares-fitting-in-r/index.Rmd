@@ -1,0 +1,790 @@
+---
+title: GSL nonlinear least squares fitting in R
+author: Joris Chau
+date: '2021-10-11T19:20:00+02:00'
+slug: gsl-nonlinear-least-squares-fitting-in-r
+categories:
+  - Statistics
+  - R
+tags:
+  - GSL
+  - R
+  - Nonlinear least squares
+  - gslnls
+  - GNU Scientific Library
+  - NIST StRD
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-10-11T19:20:00+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: yes
+projects: []
+bibliography: references.bib  
+nocite: |
+  @M81
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+library(NISTnls)
+
+opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE, eval = TRUE, comment = "#>", out.width = "100%")
+
+# save the built-in output hook
+hook_output <- knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+
+## Helper functions
+## ----------------
+
+## control grid
+gsl_args <- expand.grid(
+  algorithm = c("lm", "lmaccel", "lmaccel+fvv", "dogleg", "ddogleg", "subspace2D"),
+  scale = c("more", "levenberg", "marquadt"),
+  solver = c("qr", "cholesky", "svd"),
+  stringsAsFactors = FALSE
+)
+
+## BoxBOD data
+BoxBOD <- data.frame(
+  y = c(109, 149, 149, 191, 213, 224),
+  x = c(1, 2, 3, 5, 7, 10)
+)
+
+## format data table
+make_data_tbl <- function(data, caption = "Observed") {
+  kbl(as.data.frame(t(data)), row.names = TRUE, col.names = NULL, format = "html", caption = paste(caption, "data")) %>%
+    kable_styling(font_size = 12, full_width = FALSE) %>%
+    kable_material() %>%
+    column_spec(1, bold = TRUE, border_right = TRUE)
+}
+
+## generate model+data plot
+make_data_plot <- function(fn, data, pars, xlabel, ylabel, title, subtitle) {
+  newdata <- data.frame(
+    x = seq(from = min(data$x), to = max(data$x), length = 100)
+  )
+  newdata[["f"]] <- eval(fn[[3]], envir = c(pars, list(x = newdata$x)))
+  ## plot data and expected response
+  ggplot(data = data, aes(x = x)) + 
+    geom_line(data = newdata, aes(y = f), color = "grey60") + 
+    geom_point(data = data, aes(y = y)) + 
+    theme_light() +
+    labs(x = xlabel, y = ylabel, title = title, subtitle = subtitle)
+}
+
+try_gsl_nls <- function(fn, start, data, algorithm, scale, solver, nist_pars) {
+  ## try model fit 
+  tryfit <- tryCatch({
+    suppressWarnings(
+      gsl_nls(
+        fn = fn,
+        data = data,
+        start = start,
+        algorithm = sub("\\+fvv", "", algorithm),
+        control = list(maxiter = 1e4, scale = scale, solver = solver),
+        fvv = grepl("fvv", algorithm)
+      )
+    )
+  }, error = function(err) err)
+  ## collect fit details
+  info <- list(algorithm = algorithm, control = paste(scale, solver, sep = "+"), niter = NA, status = "failed")
+  if(inherits(tryfit, "gsl_nls")) {
+    if(tryfit$convInfo$stopCode == 0L) {
+      if(mean(abs((coef(tryfit) - nist_pars) / nist_pars)) < 1e-2) { 
+        info$status <- "success"
+        info$niter <- tryfit$convInfo$finIter
+      } else {    
+        info$status <- "false convergence"
+      } 
+    } else if(tryfit$convInfo$finIter >= 1e4) {   
+      info$status <- "max. iterations"
+    } else {    
+      info$status <- "non-zero exit"
+    }
+  }
+  return(info)
+}
+
+try_nls <- function(fn, start, data, algorithm, nist_pars, fn_plin, start_plin, nist_pars_plin) {
+  ## try model fit
+  tryfit <- tryCatch({
+    if(algorithm == "minpack.lm") {
+      suppressWarnings(
+        minpack.lm::nlsLM(
+          formula = fn,
+          data = data,
+          start = start,
+          control = list(maxiter = 1e4)
+        )
+      )
+    } else if(algorithm == "plinear") {
+      suppressWarnings(
+        nls(
+          formula = fn_plin,
+          data = data,
+          start = start_plin,
+          algorithm = algorithm,
+          control = list(maxiter = 1e4, tol = sqrt(.Machine$double.eps))
+        )
+      )
+    } else {
+      suppressWarnings(
+        nls(
+          formula = fn,
+          data = data,
+          start = start,
+          algorithm = algorithm,
+          control = list(maxiter = 1e4, tol = sqrt(.Machine$double.eps))
+        )
+      )
+    }
+  }, error = function(err) err)
+  ## collect fit details
+  info <- list(algorithm = algorithm, niter = NA, status = "failed")
+  target <- if(algorithm == "plinear") nist_pars_plin else nist_pars
+  if(inherits(tryfit, "nls")) {
+    if(tryfit$convInfo$isConv) {
+      if(mean(abs((coef(tryfit) - target) / target)) < 1e-2) { 
+        info$status <- "success"
+        info$niter <- tryfit$convInfo$finIter
+      } else {    
+        info$status <- "false convergence"
+      } 
+    } else if(tryfit$convInfo$finIter >= 1e4) {   
+      info$status <- "max. iterations"
+    } else {    
+      info$status <- "non-zero exit"
+    }
+  } 
+  return(info)
+}
+
+plot_heatmap <- function(gsl_fits, nls_fits, title, legend) {
+  ## prepare data
+  gsl_data <- gsl_fits[, .(
+    algorithm = factor(algorithm, levels = unique(algorithm)), 
+    control = factor(control, levels = unique(control)), 
+    niter = as.numeric(niter), 
+    status = factor(status, levels = c("success", "false convergence", "non-zero exit", "failed"))
+  )]
+  nls_data <- nls_fits[, .(
+    algorithm = factor(algorithm, 
+                       levels = c("default", "port", "plinear", "minpack.lm"), 
+                       labels = c("Default", "Port", "p-linear", "LM (minpack)")), 
+    label = c("Benchmarks"),
+    niter = as.numeric(niter),
+    status = factor(status, levels = c("success", "false convergence", "non-zero exit", "failed"))
+  )]
+  ## generate plots
+  gsl_iter <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = niter)) + 
+    scale_fill_fermenter(palette = "Spectral", limits = c(1, 1E4), trans = "log10", na.value = "grey70") +
+    scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
+    scale_x_discrete(guide = guide_axis(angle = 45)) +
+    guides(fill = if(legend) guide_colorbar(title = "# iterations") else FALSE) 
+  nls_iter <- ggplot(nls_data, aes(x = algorithm, y = label, fill = niter)) + 
+    scale_x_discrete(guide = guide_axis(angle = 45), position = "top") +
+    scale_fill_fermenter(palette = "Spectral", limits = c(1, 1E4), trans = "log10", na.value = "grey70") + 
+    guides(fill = FALSE) + 
+    labs(title = title) 
+  gsl_status <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = status)) +
+    scale_discrete_manual(aesthetics = "fill", values = c("success" = "#ABDDA4", "false convergence" = "#2B83BA", "failed" = "#D7191C", "non-zero exit" = "#FDAE61"), drop = FALSE) + 
+    scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
+    scale_x_discrete(guide = guide_axis(angle = 45)) +
+    guides(fill = if(legend) guide_legend(title = "") else FALSE)
+  nls_status <- ggplot(nls_data, aes(x = algorithm, y = label, fill = status)) + 
+    scale_discrete_manual(aesthetics = "fill", values = c("success" = "#ABDDA4", "false convergence" = "#2B83BA", "failed" = "#D7191C", "non-zero exit" = "#FDAE61")) + 
+    scale_x_discrete(guide = guide_axis(angle = 45), position = "top") + 
+    guides(fill = FALSE) + 
+    labs(title = title)
+  for(plot in c("gsl_iter", "nls_iter", "gsl_status", "nls_status")) {
+    assign(plot, value = {
+      get(plot) + 
+        geom_tile(colour = "white") + 
+        coord_equal() + 
+        theme_minimal(base_size = 20) +
+        theme(panel.grid = element_blank(), 
+              plot.margin = margin(c(0, 0, 0, 0)),
+              legend.box.spacing = grid::unit(0, "cm"),
+              legend.key.height = grid::unit(1, "cm"), 
+              legend.key.width = grid::unit(1, "cm"), 
+              legend.text = element_text(size = 16),
+              axis.text.y = if(!legend) element_text() else element_blank(),
+              plot.title = element_text(margin = margin(0, 0, -50, 0))) +
+        labs(x = "", y = "") 
+    })
+  }
+  ## layout plots 
+  iter_plot <- nls_iter + gsl_iter + plot_layout(ncol = 1, widths = c(1, 1), heights = c(1, 6))
+  status_plot <- nls_status + gsl_status + plot_layout(ncol = 1, widths = c(1, 1), heights = c(1, 6))
+  return(list(iter = iter_plot, status = status_plot))
+}
+
+nls_plots <- function(fn, start, data, nist_pars, fn_plin, start_plin, nist_pars_plin, title, legend, count) {
+  ## try gsl model fits  
+  gsl_out <- with(gsl_args,                                  
+                  rbindlist(
+                    mapply(
+                      FUN = try_gsl_nls,                       
+                      algorithm = algorithm,                    
+                      scale = scale, 
+                      solver = solver,
+                      MoreArgs = list(
+                        fn = fn,  
+                        start = start,    
+                        data = data,                 
+                        nist_pars = nist_pars
+                      ),
+                      SIMPLIFY = FALSE
+                    )
+                  )
+  )
+  ## try nls model fits
+  nls_out <- rbindlist(
+    mapply(
+      FUN = try_nls,                       
+      algorithm = c("default", "port", "plinear", "minpack.lm"),                    
+      MoreArgs = list(
+        fn = fn,  
+        start = start,     
+        data = data,                 
+        nist_pars = nist_pars,
+        fn_plin = fn_plin,
+        start_plin = start_plin,
+        nist_pars_plin = nist_pars_plin
+      ),
+      SIMPLIFY = FALSE
+    )
+  )
+  ## successful fit count
+  if(is.null(count)) {
+    count <- list(
+      gsl = gsl_out[, .(algorithm, control, count = as.integer(status == "success"))],
+      nls = nls_out[, .(algorithm, count = as.integer(status == "success"))]
+    )
+  } else {
+    count <- list(
+      gsl = gsl_out[, .(algorithm, control, count = count$gsl[["count"]] + as.integer(status == "success"))],
+      nls = nls_out[, .(algorithm, count = count$nls[["count"]] + as.integer(status == "success"))]
+    )
+  }
+  ## heatmaps
+  heatmaps <- plot_heatmap(gsl_out, nls_out, title, legend)
+  return(list(iter = heatmaps$iter, status = heatmaps$status, count = count))
+}
+```
+
+# Introduction
+
+The recent [`gslnls`](https://CRAN.R-project.org/package=gslnls)-package provides R bindings to nonlinear least-squares optimization with 
+the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/) using the trust region methods implemented by the `gsl_multifit_nlinear` module. This module was added in GSL version 2.2 (released in August 2016) and the available nonlinear-least squares routines have been thoroughly tested and are well documented, see [@gsl_manual].
+
+The aim of this post is to put the GSL nonlinear least-squares routines to the test and 
+benchmark their optimization performance against R's standard `nls()` function based on a small selection of test problems taken from the [NIST Statistical Reference Datasets (StRD)](https://www.itl.nist.gov/div898/strd/index.html) archive. 
+
+## NIST StRD test problems
+
+The [NIST StRD Nonlinear Regression](https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml) archive includes both generated and *real-world* nonlinear least squares problems of varying levels of difficulty. The generated datasets are designed to challenge specific computations. Real-world data include challenging datasets such as the `Thurber` problem, and more benign datasets such as `Misra1a` (not tested here). The certified parameter values are *best-available* solutions, obtained using 128-bit precision and confirmed by at least two different algorithms and software packages using analytic derivatives. 
+
+The NIST StRD archive orders the regression problems by level of difficulty (lower, moderate and higher). In this post, only the regression problems that are labeled with a *higher* level of difficulty are tested, as these regression models are generally tedious to fit using R's default `nls()` function, especially when the chosen starting values are not close to the least-squares solution. 
+
+Table 1 provides an overview of all test problems including regression models, certified parameter values and starting values. Except for `BoxBOD`, all of the listed datasets can be loaded directly in R with the `NISTnls`-package available on CRAN[^1]. For the `BoxBOD` dataset, the data is parsed separately from the corresponding NIST StRD data (.dat) file.
+
+```{r, echo = FALSE}
+datasets <- data.table(
+  "Dataset name" = c("Rat42", "MGH09", "Thurber", "MGH10", "Eckerle4", "Rat43", "Bennett5", "BoxBOD"),
+  "# Observations" = c(9, 11, 37, 16, 35, 15, 154, 6),
+  "# Parameters" = c(3, 4, 7, 3, 3, 4, 3, 2),
+  "Regression model" = c(asis_output("$f(x) = \\dfrac{b_1}{1 + \\exp(b_2 - b_3 x)}$"), 
+              asis_output("$f(x) = \\dfrac{b_1(x^2 + b_2 x)}{x^2 + b_3x + b_4}$"),
+              asis_output("$f(x) = \\dfrac{b_1 + b_2x + b_3x^2 + b_4x^3}{1 + b_5x + b_6x^2 + b_7x^3}$"),
+              asis_output("$f(x) = b_1 \\exp \\left( \\dfrac{b_2}{x + b_3} \\right)$"),
+              asis_output("$f(x) = \\dfrac{b_1}{b_2} \\exp\\left( -\\dfrac{1}{2} \\left(\\dfrac{x - b_3}{b_2}\\right)^2 \\right)$"),
+              asis_output("$f(x) = \\dfrac{b_1}{(1 + \\exp(b_2 - b_3x))^{1/b_4}}$"),
+              asis_output("$f(x) = b_1(b_2 + x)^{-1/b_3}$"),
+              asis_output("$f(x) = b_1(1 - \\exp(-b_2 x))$")),
+  "Certified parameter values" = c(
+    asis_output("$[72.462, 2.6181, 0.0673]$"),
+    asis_output("$[0.1928, 0.1913, 0.1231, 0.1361]$"),
+    asis_output("$[1288.14, 1491.08, 583.238, 75.417, 0.9663, 0.3980, 0.0497]$"),
+    asis_output("$[0.00561, 6181.35, 345.224]$"),
+    asis_output("$[1.5544, 4.0888, 451.541]$"),
+    asis_output("$[699.642, 5.2771, 0.7596, 1.2792]$"),
+    asis_output("$[-2523.51, 46.737, 0.9322]$"),
+    asis_output("$[213.809, 0.5472]$")
+  ),
+  "Starting values" = c(
+    asis_output("$[100, 1, 0.1]$"),
+    asis_output("$[25, 39, 41.5, 39]$"),
+    asis_output("$[1000, 1000, 400, 40, 0.7, 0.3, 0.03]$"),
+    asis_output("$[2, 400000, 25000]$"),
+    asis_output("$[1, 10, 500]$"),
+    asis_output("$[100, 10, 1, 1]$"),
+    asis_output("$[-2000, 50, 0.8]$"),
+    asis_output("$[1, 1]$")
+  ),
+  "Dataset source" = c("Observed", "Generated", "Observed", "Generated", "Observed", "Observed", "Observed", "Observed"),
+  "Reference" = c(asis_output("@R83"), asis_output("@K78"), asis_output("@T79"), asis_output("@M70"), 
+                  asis_output("@E79"), asis_output("@R83"), asis_output("@B94"), asis_output("@B78"))
+)
+
+kbl(datasets, format = "html", caption = "Selected NIST StRD test problems") %>%
+  kable_styling(font_size = 12) %>%
+  kable_material() %>%
+  column_spec(1, bold = TRUE)
+```
+
+The regression models and certified parameter values are taken from their respective NIST StRD data (.dat) files. For each test problem, the NIST StRD archive provides two or three sets of parameter starting values for the purpose of testing. The starting values listed in Table 1 correspond to the *most difficult* sets of starting values that are generally the furthest away from the target least-squares solution. 
+
+Below, the individual observed datasets are displayed, with the (unique) predictor variable on the x-axis and the response variable on the y-axis. The overlayed continuous line corresponds to the regression model evaluated at the certified parameter values.
+
+```{r, echo = FALSE, out.width = "100%", fig.dim = c(8, 12)}
+p1 <- make_data_plot(
+  fn = y ~ b1 / (1 + exp(b2 - b3 * x)),
+  data = Ratkowsky2,
+  pars = list(b1 = 7.2462237576E+01, b2 = 2.6180768402E+00, b3 = 6.7359200066E-02),
+  xlabel = "Growing time (x)",
+  ylabel = "Pasture yield (y)",
+  title = "Rat42",
+  subtitle = NULL
+)
+
+p2 <- make_data_plot(
+  fn = y ~ b1 * (x^2 + x * b2) / (x^2 + x * b3 + b4),
+  data = MGH09,
+  pars = list(b1 = 1.9280693458E-01, b2 = 1.9128232873E-01, b3 = 1.2305650693E-01, b4 = 1.3606233068E-01),
+  xlabel = "Predictor (x)",
+  ylabel = "Response (y)",
+  title = "MGH09",
+  subtitle = NULL
+)
+
+p3 <- make_data_plot(
+  fn = y ~ (b1 + x * (b2 + x * (b3 + b4 * x))) / (1 + x * (b5 + x * (b6 + x * b7))),
+  data = Thurber,
+  pars = list(b1 = 1.2881396800E+03, b2 = 1.4910792535E+03, b3 = 5.8323836877E+02, b4 = 7.5416644291E+01, b5 = 9.6629502864E-01, b6 = 3.9797285797E-01, b7 = 4.9727297349E-02),
+  xlabel = "Electron mobility (x)",
+  ylabel = "Ln-density (y)",
+  title = "Thurber",
+  subtitle = NULL
+)
+
+p4 <- make_data_plot(
+  fn = y ~ b1 * exp(b2 / (x + b3)),
+  data = MGH10,
+  pars = list(b1 = 5.6096364710E-03, b2 = 6.1813463463E+03, b3 = 3.4522363462E+02),
+  xlabel = "Predictor (x)",
+  ylabel = "Response (y)",
+  title = "MGH10",
+  subtitle = NULL
+)
+
+p5 <- make_data_plot(
+  fn = y ~ (b1 / b2) * exp(-0.5 * ((x - b3) / b2)^2),
+  data = Eckerle4,
+  pars = list(b1 = 1.5543827178E+00, b2 = 4.0888321754E+00, b3 = 4.5154121844E+02),
+  xlabel = "Wavelength (x)",
+  ylabel = "Transmittance (y)",
+  title = "Eckerle4",
+  subtitle = NULL
+)
+
+p6 <- make_data_plot(
+  fn = y ~ b1 / ((1 + exp(b2 - b3 * x))^(1 / b4)),
+  data = Ratkowsky3,
+  pars = list(b1 = 6.9964151270E+02, b2 = 5.2771253025E+00, b3 = 7.5962938329E-01, b4 = 1.2792483859E+00),
+  xlabel = "Growing time (x)",
+  ylabel = "Onion bulb dry weight (y)",
+  title = "Rat43",
+  subtitle = NULL
+)
+
+p7 <- make_data_plot(
+  fn = y ~ b1 * (b2 + x)^(-1 / b3),
+  data = Bennett5,
+  pars = list(b1 = -2.5235058043E+03, b2 = 4.6736564644E+01, b3 = 9.3218483193E-01),
+  xlabel = "Log[time] (x)",
+  ylabel = "Magnetism (y)",
+  title = "Bennett5",
+  subtitle = NULL
+)
+
+p8 <- make_data_plot(
+  fn = y ~ b1 * (1 - exp(-b2 * x)),
+  data = BoxBOD,
+  pars = list(b1 = 2.1380940889E+02, b2 = 5.4723748542E-01),
+  xlabel = "Incubation time (x)",
+  ylabel = "Biochemical oxygen demand (y)",
+  title = "BoxBOD",
+  subtitle = NULL
+)
+
+gridExtra::grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, nrow = 4)
+```
+
+## Algorithms and control parameters
+
+### Trust region methods
+
+Convergence of the nonlinear least-squares routines is tested across a grid of algorithms and pre-selected control parameter choices. For the GSL nonlinear least-squares algorithms, all trust region methods available through the `gsl_nls()` function are evaluated, i.e. the `algorithm` argument in `gsl_nls()` takes the following values:
+
+* `"lm"`, [Levenberg-Marquadt algorithm](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt)
+* `"lmaccel"`, [Levenberg-Marquadt with geodesic acceleration](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt-with-geodesic-acceleration).
+* `"dogleg"`, [Powell's Dogleg algorithm](https://www.gnu.org/software/gsl/doc/html/nls.html#dogleg)
+* `"ddogleg"`, [Double dogleg algorithm](https://www.gnu.org/software/gsl/doc/html/nls.html#double-dogleg)
+* `"subspace2D"`, [2D subspace dogleg generalization](https://www.gnu.org/software/gsl/doc/html/nls.html#two-dimensional-subspace).
+
+By default, if the `jac` argument in the `gsl_nls()` function is left unspecified, the Jacobian matrix is approximated by (forward) finite differences. Analogously, when geodesic acceleration is used and the `fvv` argument is left unspecified, the second directional derivatives are approximated by (forward) finite differences. In testing the convergence of the GSL routines, the `jac` argument is always left unspecified. The Levenberg-Marquadt algorithm with geodesic acceleration is evaluated both with the `fvv` argument unspecified (denoted by `lmaccel`) *and* with `fvv = TRUE` in which case the second directional derivatives are calculated using symbolic differentiation (denoted by `lmaccel+fvv`).
+
+### Scaling method
+
+For the control parameters set with `gsl_nls_control()`, only the `scale` and `solver` parameters are varied, see also `?gsl_nls_control`. The maximum number of iterations `maxiter` is increased from the default `maxiter = 50` to `maxiter = 1e4` in order to remove the maximum number of iterations as a constraining factor, and the default values are used for all other control parameters available in `gsl_nls_control()`.
+
+The `scale` control parameter can take the following values[^2]:
+
+* `"more"`, Moré rescaling. This method makes the problem scale-invariant and has been proven effective on a large class of problems.
+* `"levenberg"`, Levenberg rescaling. This method has also proven effective on a large class of problems, but is not scale-invariant. It may perform better for problems susceptible to parameter evaporation (parameters going to infinity).
+* `"marquadt"`, Marquadt rescaling. This method is scale-invariant, but it is generally considered inferior to both the Levenberg and Moré strategies.
+
+### Solver method
+
+The `solver` control parameter can take on the following values[^3]:
+
+* `"qr"`, QR decomposition of the Jacobian. This method will produce reliable solutions in cases where the Jacobian is rank deficient or near-singular but does require more operations than the Cholesky method.
+* `"cholesky"`, Cholesky decomposition of the Jacobian. This method is faster than the QR approach, however it is susceptible to numerical instabilities if the Jacobian matrix is rank deficient or near-singular.
+* `"svd"`, SVD decomposition of the Jacobian. This method will produce the most reliable solutions for ill-conditioned Jacobians but is also the slowest.
+
+### Benchmark algorithms
+
+In order to benchmark the performance of the GSL nonlinear least-squares routines against several standard alternatives in R, each nonlinear regression model is also fitted using the standard `nls()` function, as well as the `nlsLM()` function from the `minpack.lm`-package. 
+
+For the `nls()` function, all three available algorithms are tested, i.e. the `algorithm` argument is set to respectively:
+
+* `"default"`, the default Gauss-Newton algorithm
+* `"plinear"`, Golub-Pereyra algorithm for partially linear least-squares models
+* `"port"`, `nl2sol` algorithm from the [Port](https://www.netlib.org/port/) library
+
+The maximum number of iterations is set to `maxiter = 1e4` and the relative convergence tolerance is set to `tol = sqrt(.Machine$double.eps)` to mimic the control parameters used for the GSL routines.
+
+For the `nlsLM()` function, there is only a single algorithm (Levenberg-Marquadt), so no choice needs to be made here. The maximum number of iterations is set to `maxiter = 1e4` and all other control parameters are kept at their default values.
+
+## Rat42 example
+
+As a worked out example, we display the different NLS calls used to fit the `Rat42` nonlinear regression model based on `gsl_nls()`, `nls()` and `nlsLM()`. The `Rat42` model and data are an example of fitting sigmoidal growth curves taken from [@R83]. The response variable is pasture yield, and the predictor variable is growing times.
+
+```{r, echo = FALSE}
+make_data_tbl(NISTnls::Ratkowsky2, caption = "Rat42")
+```
+
+### GSL model fit
+
+The GSL model fits are produced with `gsl_nls()` in the `gslnls`-package. A minimal function call consists of the model `formula`, the data and a set of starting values. By default, `gsl_nls()` uses the Levenberg-Marquadt algorithm with control parameters `scale = "more"` and `solver = "qr"`. The starting values $(b_1 = 100, b_2 = 1, b_3 = 0.1)$ are taken from Table 1.
+
+```{r}
+library(NISTnls)    ## NIST nls datasets
+library(gslnls)     ## GSL bindings
+
+## gsl lm (more+qr)
+rat42_gsl <- gsl_nls(
+  fn = y ~ b1 / (1 + exp(b2 - b3 * x)),   ## model
+  data = Ratkowsky2,                      ## dataset
+  start = c(b1 = 100, b2 = 1, b3 = 0.1)   ## starting values
+)
+
+rat42_gsl
+```
+
+The object returned by `gsl_nls()` inherits from class `"nls"`. For this reason, all generic functions available for objects of class `"nls"` are also applicable to objects fitted with `gsl_nls()`. For instance,
+
+```{r}
+## model fit summary
+summary(rat42_gsl)
+
+## profile confidence intervals
+confint(rat42_gsl)
+```
+
+The `predict` method also allows for the calculation of asymptotic confidence and prediction (tolerance) intervals in addition to prediction of the expected response as returned by the standard `predict.nls` method:
+
+```{r}
+predict(rat42_gsl, interval = "prediction", level = 0.95)
+```
+
+```{r, echo = FALSE}
+newdata <- data.frame(x = seq(from = 8, to = 80, length = 100))
+newdata <- cbind(newdata, predict(rat42_gsl, interval = "prediction", newdata = newdata, level = 0.95))
+
+ggplot(newdata, aes(x = x)) + 
+  geom_ribbon(aes(ymin = lwr, ymax = upr), color = "grey70", alpha = 0.25, fill = "grey50") + 
+  geom_line(aes(y = fit), color = "black") + 
+  geom_point(data = Ratkowsky2, aes(y = y)) + 
+  theme_light(base_size = 12) +
+  labs(x = "Growing time (x)", y = "Pasture yield (y)",
+       title = "Rat42",
+       subtitle = "Predicted expected response and 95%-prediction intervals")
+```
+
+### Benchmark NLS fits
+
+As benchmarks to the model fits obtained with `gsl_nls()`, each test problem is also fitted with calls to `nls()` and `minpack.lm::nlsLM()`. For the `Rat42` dataset, fitting the regression model with `nls()` using the default Gauss-Newton algorithm (`algorithm = "default"`) fails to return a valid result:
+
+```{r, error = TRUE}
+## nls default
+nls(
+  formula = y ~ b1 / (1 + exp(b2 - b3 * x)),   ## model
+  data = Ratkowsky2,                           ## dataset
+  start = c(b1 = 100, b2 = 1, b3 = 0.1)        ## starting values
+)
+```
+
+Switching to the Port algorithm (`algorithm = "port"`), the `nls()` call does converge to the target least-squares solution:
+
+```{r}
+## nls port
+nls(
+  formula = y ~ b1 / (1 + exp(b2 - b3 * x)),   ## model
+  data = Ratkowsky2,                           ## dataset
+  start = c(b1 = 100, b2 = 1, b3 = 0.1),       ## starting values
+  algorithm = "port"                           ## algorithm
+)
+```
+
+And the same is true when using `nlsLM()` with the default Levenberg-Marquadt algorithm:
+
+```{r}
+## nls LM
+minpack.lm::nlsLM(
+  formula = y ~ b1 / (1 + exp(b2 - b3 * x)),   ## model
+  data = Ratkowsky2,                           ## dataset
+  start = c(b1 = 100, b2 = 1, b3 = 0.1),       ## starting values
+)
+```
+
+The `Rat42` model is *partially linear* in the sense that `y ~ b1 * z` with `z = 1 / (1 + exp(b2 - b3 * x))`, which means that the Golub-Pereyra algorithm (`algorithm = "plinear"`) can also be applied in this example. Note that the model formula is updated to exclude the linear parameter `b1`, and a starting value for this parameter is no longer required.
+
+```{r}
+## nls plinear
+nls(
+  formula = y ~ 1 / (1 + exp(b2 - b3 * x)),    ## model
+  data = Ratkowsky2,                           ## dataset
+  start = c(b2 = 1, b3 = 0.1),                 ## starting values
+  algorithm = "plinear"                        ## algorithm
+)
+```
+
+The p-linear algorithm also converges successfully, with the `b1` parameter now labeled as `.lin` (for *linear* parameter) in the fitted model coefficients.
+
+# Model fit results
+
+## Model fit convergence
+
+Below, the convergence status of the evaluated GSL and benchmark NLS routines is displayed for each individual test problem. The obtained convergence results are categorized according to the following status codes:
+
+* **success**; the NLS routine converged successfully and the fitted parameters *approximately* coincide with the NIST StRD certified values[^4].
+* **false convergence**; the NLS routine converged successfully, but the fitted parameters do not coincide with the NIST StRD certified values.
+* **non-zero exit**; the NLS routine failed to converge and returns a valid NLS object with a non-zero exit code.
+* **failed**; the NLS routine failed to converge and returns an error.
+
+```{r, echo = FALSE}
+h1 <- nls_plots(
+  title = "Rat42",
+  fn = y ~ b1 / (1 + exp(b2 - b3 * x)),
+  start = c(b1 = 100, b2 = 1, b3 = 0.1),
+  data = Ratkowsky2,
+  nist_pars = c(7.2462237576E+01, 2.6180768402E+00, 6.7359200066E-02),
+  fn_plin = y ~ 1 / (1 + exp(b2 - b3 * x)),
+  start_plin = c(b2 = 1, b3 = 0.1),
+  nist_pars_plin = c(2.6180768402E+00, 6.7359200066E-02, 7.2462237576E+01),
+  legend = FALSE,
+  count = NULL
+)
+
+h2 <- nls_plots(
+  title = "MGH09",
+  fn = y ~ b1 * (x^2 + x * b2) / (x^2 + x * b3 + b4),
+  start =  c(b1 = 25, b2 = 39, b3 = 41.5, b4 = 39),
+  data = MGH09,
+  nist_pars = c(1.9280693458E-01, 1.9128232873E-01, 1.2305650693E-01, 1.3606233068E-01),
+  fn_plin = y ~ (x^2 + x * b2) / (x^2 + x * b3 + b4),
+  start_plin = c(b2 = 39, b3 = 41.5, b4 = 39),
+  nist_pars_plin = c(1.9128232873E-01, 1.2305650693E-01, 1.3606233068E-01, 1.9280693458E-01),
+  legend = TRUE,
+  count = h1$count
+)
+
+h3 <- nls_plots(
+  title = "Thurber",
+  fn = y ~ (b1+x*(b2+x*(b3+b4*x))) / (1+x*(b5+x*(b6+x*b7))),
+  start = c(b1 = 1000, b2 = 1000, b3 = 400, b4 = 40, b5 = 0.7, b6 = 0.3, b7 = 0.03),
+  data = Thurber,
+  nist_pars = c(1.2881396800E+03, 1.4910792535E+03, 5.8323836877E+02, 7.5416644291E+01,
+                9.6629502864E-01, 3.9797285797E-01, 4.9727297349E-02),
+  fn_plin = y ~ (1 + x * (b2 + x * (b3 + b4 * x))) / (1 + x * (b5 + x * (b6 + x * b7))),
+  start_plin = c(b2 = 1, b3 = 0.4, b4 = 0.04, b5 = 0.7, b6 = 0.3, b7 = 0.03),
+  nist_pars_plin = c(1.157545e+00, 4.527757e-01, 5.854695e-02, 9.660744e-01, 0.3979729, 0.0497273, 1.2881396800E+03),
+  legend = FALSE,
+  count = h2$count
+)
+
+h4 <- nls_plots(
+  title = "MGH10",
+  fn = y ~ b1 * exp(b2 / (x + b3)),
+  start = c(b1 = 2, b2 = 400000, b3 = 25000),
+  data = MGH10,
+  nist_pars = c(5.6096364710E-03, 6.1813463463E+03, 3.4522363462E+02),
+  fn_plin = y ~ exp(b2 / (x + b3)),
+  start_plin = c(b2 = 0, b3 = 0),
+  nist_pars_plin = c(6.1813463463E+03, 3.4522363462E+02, 5.6096364710E-03),
+  legend = TRUE,
+  count = h3$count
+)
+
+h5 <- nls_plots(
+  title = "Eckerle4",
+  fn = y ~ (b1 / b2) * exp(-0.5 * ((x - b3) / b2)^2),
+  start = c(b1 = 1, b2 = 10, b3 = 500),
+  data = Eckerle4,
+  nist_pars = c(1.5543827178E+00, 4.0888321754E+00, 4.5154121844E+02),
+  fn_plin = y ~ 1 / b2 * exp(-0.5 * ((x - b3) / b2)^2),
+  start_plin = c(b2 = 10, b3 = 500),
+  nist_pars_plin = c(4.0888321754E+00, 4.5154121844E+02, 1.5543827178E+00),
+  legend = FALSE,
+  count = h4$count
+)
+
+h6 <- nls_plots(
+  title = "Rat43",
+  fn = y ~ b1 / ((1 + exp(b2 - b3 * x))^(1 / b4)),
+  start = c(b1 = 100, b2 = 10, b3 = 1, b4 = 1),
+  data = Ratkowsky3,
+  nist_pars = c(6.9964151270E+02, 5.2771253025E+00, 7.5962938329E-01, 1.2792483859E+00),
+  fn_plin = y ~ 1 / ((1 + exp(b2 - b3 * x))^(1 / b4)),
+  start_plin = c(b2 = 10, b3 = 1, b4 = 1),
+  nist_pars_plin = c(5.2771253025E+00, 7.5962938329E-01, 1.2792483859E+00, 6.9964151270E+02),
+  legend = TRUE,
+  count = h5$count
+)
+
+h7 <- nls_plots(
+  title = "Bennet5",
+  fn = y ~ b1 * (b2 + x)^(-1 / b3),
+  start = c(b1 = -2000, b2 = 50, b3 = 0.8),
+  data = Bennett5,
+  nist_pars = c(-2.5235058043E+03, 4.6736564644E+01, 9.3218483193E-01),
+  fn_plin = y ~ (b2 + x)^(-1 / b3),
+  start_plin = c(b2 = 50, b3 = 0.8),
+  nist_pars_plin = c(4.6736564644E+01, 9.3218483193E-01, -2.5235058043E+03),
+  legend = FALSE,
+  count = h6$count
+)
+
+h8 <- nls_plots(
+  title = "BoxBOD",
+  fn = y ~ b1 * (1 - exp(-b2 * x)),
+  start = c(b1 = 1, b2 = 1),
+  data = BoxBOD,
+  nist_pars = c(2.1380940889E+02, 5.4723748542E-01),
+  fn_plin = y ~ (1 - exp(-b2 * x)),
+  start_plin = c(b2 = 1),
+  nist_pars_plin = c(5.4723748542E-01, 2.1380940889E+02),
+  legend = TRUE,
+  count = h7$count
+)
+```
+
+```{r, echo = FALSE, out.width = "100%", fig.dim = c(14, 32)}
+(h1$status | h2$status) / (h3$status | h4$status) / (h5$status | h6$status) / (h7$status | h8$status)
+```
+
+Based on the displayed results, an initial observation is that the default Gauss-Newton algorithm in `nls()` fails to produce *any* successful model fit and returns an error for each selected test problem, which is similar to the worked out `Rat42` example in the previous section. The Port and (`minpack.lm`) Levenberg-Marquadt algorithms show roughly similar performance, but only converge successfully for half of the test problems. The p-linear algorithm is somewhat special as it is only applicable for regression models that can be factored as a partially linear model. However, if applicable, the p-linear algorithm can be a powerful alternative as demonstrated by the `BoxBOD` problem, where most other (general) NLS routines fail to converge. More precisely, the `BoxBOD` regression model contains only two parameters, and by factoring out the linear parameter, the nonlinear model fit that needs to be optimized by the p-linear algorithm depends only on a single unknown parameter.
+
+Regarding the GSL routines, for each test problem there exists *at least* one algorithm configuration that is able to produce a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (`lm`, `lmaccel`, `lmaccel+fvv`) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (`lm`), the LM algorithm with geodesic acceleration (`lmaccel`, `lmaccel+fvv`) fails to converge in the `Rat43` problem, but on the other hand the `lmaccel+fvv` algorithm is the *only* GSL routine that is able to produce a successful fit in the `BoxBOD` problem.
+
+Across control parameter configurations, in terms of the scaling method, `more` rescaling (the default) appears to be the most stable, followed by `marqaudt` rescaling and `levenberg` rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (`dogleg`, `ddogleg`, `subspace2D`) and somewhat less for the Levenberg-Marquadt algorithms. In terms of the chosen solver method, the `svd` solver produces slightly more robust results than the `qr` and `cholesky` solver methods, which seems to be in line with the solver method section in the GSL documentation.
+
+```{r, echo = FALSE, fig.dim = c(9, 7)}
+## number of successful fits
+gsl_data <- h8$count$gsl[, .(
+  algorithm = factor(algorithm, levels = unique(algorithm)), 
+  control = factor(control, levels = unique(control)), 
+  count = as.numeric(count)
+)]
+nls_data <- h8$count$nls[, .(
+  algorithm = factor(algorithm, 
+                     levels = c("default", "port", "plinear", "minpack.lm"), 
+                     labels = c("Default", "Port", "p-linear", "LM (minpack)")), 
+  label = c("Benchmarks"),
+  count = as.numeric(count)
+)]
+
+gsl_success <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = count)) + 
+  scale_fill_fermenter(direction = 1, palette = "Spectral", breaks = 0:7, limits = c(0, 7), na.value = "grey70") +
+  scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  guides(fill = guide_colorbar(title = "# Successful fits")) + 
+  geom_tile(colour = "white") + 
+  coord_equal() + 
+  theme_minimal(base_size = 16) +
+  theme(panel.grid = element_blank(), 
+        plot.margin = margin(c(0, 0, 0, 0)),
+        legend.box.spacing = grid::unit(0, "cm"),
+        legend.key.height = grid::unit(1, "cm"), 
+        legend.key.width = grid::unit(0.5, "cm"), 
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 11)) +
+  labs(x = "", y = "") 
+
+nls_success <- ggplot(nls_data, aes(x = algorithm, y = label, fill = count)) + 
+  scale_x_discrete(guide = guide_axis(angle = 45), position = "top") +
+  scale_fill_fermenter(direction = 1, palette = "Spectral", breaks = 0:7, limits = c(0, 7), na.value = "grey70") + 
+  guides(fill = FALSE) + 
+  labs(title = "Total number of successful model fits") +
+  geom_tile(colour = "white") + 
+  coord_equal() + 
+  theme_minimal(base_size = 16) +
+  theme(panel.grid = element_blank(), 
+        plot.margin = margin(c(0, 0, 0, 0)),
+        plot.title = element_text(margin = margin(0, 0, 0, 0), size = 20)) +
+  labs(x = "", y = "") 
+
+nls_success + gsl_success + plot_layout(ncol = 1, widths = c(1, 1), heights = c(1, 6))
+```
+
+## Iterations to convergence
+
+As supplementary information, below we display the required number of iterations to reach convergence for each successfully converged NLS routine. In case of a successful model fit, the Port algorithm requires only a small number of iterations to reach convergence. The number of iterations required by the `minpack.lm` Levenberg-Marquadt algorithm and GSL Levenberg-Marquadt algorithm(s) is of the same order of magnitude as one would expect. Among the GSL routines, except for the `MGH09` problem, the general tendency appears to be that the Dogleg-based algorithms (`dogleg`, `ddogleg`, `subspace2D`) require less iterations than the LM-based algorithms. This is illustrated most clearly by the `Rat42` and `Bennet5` plots.
+
+```{r, echo = FALSE, out.width = "100%", fig.dim = c(14, 32)}
+(h1$iter | h2$iter) / (h3$iter | h4$iter) / (h5$iter | h6$iter) / (h7$iter | h8$iter)
+```
+
+# Conclusion
+
+In this post, an attempt is made to provide an objective performance comparison between a number of GSL nonlinear least squares routines (available through the `gslnls`-package) as well as several standard NLS algorithms provided by `nls()` and `minpack.lm::nlsLM()` based on a small collection of NIST StRD test problems. For the tested nonlinear regression problems, the GSL algorithms show at least comparable --*and often better*-- optimization performance than the included benchmark algorithms, using mostly standard choices and default values for the GSL trust region method control parameters. As such, the GSL trust region methods provide a useful supplement to the existing suite of nonlinear least squares fitting algorithms available in R, in particular when adequate starting values are difficult to come by and more stable optimization routines (than provided by R's standard methods) are required.
+
+# References
+
+[^1]: https://cran.r-project.org/web/packages/NISTnls/index.html
+[^2]: https://www.gnu.org/software/gsl/doc/html/nls.html#c.gsl_multifit_nlinear_scale
+[^3]: https://www.gnu.org/software/gsl/doc/html/nls.html#c.gsl_multifit_nlinear_solver
+[^4]: Here, the maximum relative deviation of the fitted values with respect to the certified values is within a small tolerance range $\epsilon$.
