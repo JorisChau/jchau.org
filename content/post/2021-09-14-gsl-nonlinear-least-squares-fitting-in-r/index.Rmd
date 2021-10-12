@@ -1,22 +1,23 @@
 ---
 title: GSL nonlinear least squares fitting in R
 author: Joris Chau
-date: '2021-10-11T19:20:00+02:00'
+date: '2021-10-12T19:00:00+02:00'
 slug: gsl-nonlinear-least-squares-fitting-in-r
 categories:
   - Statistics
   - R
+  - R-bloggers
 tags:
   - GSL
+  - gslnls
   - R
   - Nonlinear least squares
-  - gslnls
   - GNU Scientific Library
   - NIST StRD
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2021-10-11T19:20:00+02:00'
+lastmod: '2021-10-12T19:00:00+02:00'
 featured: no
 image:
   caption: ''
@@ -201,21 +202,21 @@ plot_heatmap <- function(gsl_fits, nls_fits, title, legend) {
     scale_fill_fermenter(palette = "Spectral", limits = c(1, 1E4), trans = "log10", na.value = "grey70") +
     scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
     scale_x_discrete(guide = guide_axis(angle = 45)) +
-    guides(fill = if(legend) guide_colorbar(title = "# iterations") else FALSE) 
+    guides(fill = if(legend) guide_colorbar(title = "# iterations") else "none") 
   nls_iter <- ggplot(nls_data, aes(x = algorithm, y = label, fill = niter)) + 
     scale_x_discrete(guide = guide_axis(angle = 45), position = "top") +
     scale_fill_fermenter(palette = "Spectral", limits = c(1, 1E4), trans = "log10", na.value = "grey70") + 
-    guides(fill = FALSE) + 
+    guides(fill = "none") + 
     labs(title = title) 
   gsl_status <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = status)) +
     scale_discrete_manual(aesthetics = "fill", values = c("success" = "#ABDDA4", "false convergence" = "#2B83BA", "failed" = "#D7191C", "non-zero exit" = "#FDAE61"), drop = FALSE) + 
     scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
     scale_x_discrete(guide = guide_axis(angle = 45)) +
-    guides(fill = if(legend) guide_legend(title = "") else FALSE)
+    guides(fill = if(legend) guide_legend(title = "") else "none")
   nls_status <- ggplot(nls_data, aes(x = algorithm, y = label, fill = status)) + 
     scale_discrete_manual(aesthetics = "fill", values = c("success" = "#ABDDA4", "false convergence" = "#2B83BA", "failed" = "#D7191C", "non-zero exit" = "#FDAE61")) + 
     scale_x_discrete(guide = guide_axis(angle = 45), position = "top") + 
-    guides(fill = FALSE) + 
+    guides(fill = "none") + 
     labs(title = title)
   for(plot in c("gsl_iter", "nls_iter", "gsl_status", "nls_status")) {
     assign(plot, value = {
@@ -296,8 +297,8 @@ nls_plots <- function(fn, start, data, nist_pars, fn_plin, start_plin, nist_pars
 
 # Introduction
 
-The recent [`gslnls`](https://CRAN.R-project.org/package=gslnls)-package provides R bindings to nonlinear least-squares optimization with 
-the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/) using the trust region methods implemented by the `gsl_multifit_nlinear` module. This module was added in GSL version 2.2 (released in August 2016) and the available nonlinear-least squares routines have been thoroughly tested and are well documented, see [@gsl_manual].
+The new [`gslnls`](https://CRAN.R-project.org/package=gslnls)-package provides R bindings to nonlinear least-squares optimization with 
+the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/) using the trust region methods implemented by the `gsl_multifit_nlinear` module. The `gsl_multifit_nlinear` module was added in GSL version 2.2 (released in August 2016) and the available nonlinear-least squares routines have been thoroughly tested and are well documented, see [@gsl_manual].
 
 The aim of this post is to put the GSL nonlinear least-squares routines to the test and 
 benchmark their optimization performance against R's standard `nls()` function based on a small selection of test problems taken from the [NIST Statistical Reference Datasets (StRD)](https://www.itl.nist.gov/div898/strd/index.html) archive. 
@@ -308,7 +309,7 @@ The [NIST StRD Nonlinear Regression](https://www.itl.nist.gov/div898/strd/nls/nl
 
 The NIST StRD archive orders the regression problems by level of difficulty (lower, moderate and higher). In this post, only the regression problems that are labeled with a *higher* level of difficulty are tested, as these regression models are generally tedious to fit using R's default `nls()` function, especially when the chosen starting values are not close to the least-squares solution. 
 
-Table 1 provides an overview of all test problems including regression models, certified parameter values and starting values. Except for `BoxBOD`, all of the listed datasets can be loaded directly in R with the `NISTnls`-package available on CRAN[^1]. For the `BoxBOD` dataset, the data is parsed separately from the corresponding NIST StRD data (.dat) file.
+Table 1 provides an overview of all evaluated test problems including regression models, certified parameter values and starting values. Except for `BoxBOD`, all of the listed datasets can be loaded directly in R with the `NISTnls`-package available on CRAN[^1]. For the `BoxBOD` dataset, the data is parsed separately from the corresponding NIST StRD data (.dat) file.
 
 ```{r, echo = FALSE}
 datasets <- data.table(
@@ -356,7 +357,7 @@ kbl(datasets, format = "html", caption = "Selected NIST StRD test problems") %>%
 
 The regression models and certified parameter values are taken from their respective NIST StRD data (.dat) files. For each test problem, the NIST StRD archive provides two or three sets of parameter starting values for the purpose of testing. The starting values listed in Table 1 correspond to the *most difficult* sets of starting values that are generally the furthest away from the target least-squares solution. 
 
-Below, the individual observed datasets are displayed, with the (unique) predictor variable on the x-axis and the response variable on the y-axis. The overlayed continuous line corresponds to the regression model evaluated at the certified parameter values.
+The following plots display all observed datasets, with the (unique) predictor variable on the x-axis and the response variable on the y-axis. The overlayed continuous line corresponds to the regression model evaluated at the certified parameter values.
 
 ```{r, echo = FALSE, out.width = "100%", fig.dim = c(8, 12)}
 p1 <- make_data_plot(
@@ -446,7 +447,7 @@ gridExtra::grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, nrow = 4)
 
 ### Trust region methods
 
-Convergence of the nonlinear least-squares routines is tested across a grid of algorithms and pre-selected control parameter choices. For the GSL nonlinear least-squares algorithms, all trust region methods available through the `gsl_nls()` function are evaluated, i.e. the `algorithm` argument in `gsl_nls()` takes the following values:
+Convergence of the nonlinear least-squares routines is tested across a grid of algorithms and pre-selected control parameter choices. For the GSL nonlinear least-squares algorithms, all trust region methods available through the `gsl_nls()` function in the `gslnls`-package are evaluated, i.e. the `algorithm` argument in `gsl_nls()` takes the following values:
 
 * `"lm"`, [Levenberg-Marquadt algorithm](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt)
 * `"lmaccel"`, [Levenberg-Marquadt with geodesic acceleration](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt-with-geodesic-acceleration).
@@ -476,7 +477,7 @@ The `solver` control parameter can take on the following values[^3]:
 
 ### Benchmark algorithms
 
-In order to benchmark the performance of the GSL nonlinear least-squares routines against several standard alternatives in R, each nonlinear regression model is also fitted using the standard `nls()` function, as well as the `nlsLM()` function from the `minpack.lm`-package. 
+In order to benchmark the performance of the GSL nonlinear least-squares routines against several common R alternatives, each nonlinear regression model is also fitted using the standard `nls()` function, as well as the `nlsLM()` function from the `minpack.lm`-package. 
 
 For the `nls()` function, all three available algorithms are tested, i.e. the `algorithm` argument is set to respectively:
 
@@ -498,13 +499,13 @@ make_data_tbl(NISTnls::Ratkowsky2, caption = "Rat42")
 
 ### GSL model fit
 
-The GSL model fits are produced with `gsl_nls()` in the `gslnls`-package. A minimal function call consists of the model `formula`, the data and a set of starting values. By default, `gsl_nls()` uses the Levenberg-Marquadt algorithm with control parameters `scale = "more"` and `solver = "qr"`. The starting values $(b_1 = 100, b_2 = 1, b_3 = 0.1)$ are taken from Table 1.
+Similar to `nls()`, a minimal `gsl_nls()` function call consists of the model `formula`, the data and a set of starting values. By default, `gsl_nls()` uses the Levenberg-Marquadt algorithm (`algorithm = "lm"`) with control parameters `scale = "more"` and `solver = "qr"`. The starting values $(b_1 = 100, b_2 = 1, b_3 = 0.1)$ are taken from Table 1.
 
 ```{r}
-library(NISTnls)    ## NIST nls datasets
-library(gslnls)     ## GSL bindings
+library(NISTnls)    
+library(gslnls)     
 
-## gsl lm (more+qr)
+## gsl Levenberg-Marquadt (more+qr)
 rat42_gsl <- gsl_nls(
   fn = y ~ b1 / (1 + exp(b2 - b3 * x)),   ## model
   data = Ratkowsky2,                      ## dataset
@@ -514,7 +515,7 @@ rat42_gsl <- gsl_nls(
 rat42_gsl
 ```
 
-The object returned by `gsl_nls()` inherits from class `"nls"`. For this reason, all generic functions available for objects of class `"nls"` are also applicable to objects fitted with `gsl_nls()`. For instance,
+The `gsl_nls()` function returns an object that inherits from the class `"nls"`. For this reason, all generic functions available for `"nls"`-objects are also applicable to objects returned by `gsl_nls()`. For instance,
 
 ```{r}
 ## model fit summary
@@ -524,7 +525,7 @@ summary(rat42_gsl)
 confint(rat42_gsl)
 ```
 
-The `predict` method also allows for the calculation of asymptotic confidence and prediction (tolerance) intervals in addition to prediction of the expected response as returned by the standard `predict.nls` method:
+Note that the existing `predict.nls` method is extended to allow for the calculation of asymptotic confidence and prediction intervals, in addition to prediction of the expected response:
 
 ```{r}
 predict(rat42_gsl, interval = "prediction", level = 0.95)
@@ -716,11 +717,11 @@ h8 <- nls_plots(
 (h1$status | h2$status) / (h3$status | h4$status) / (h5$status | h6$status) / (h7$status | h8$status)
 ```
 
-Based on the displayed results, an initial observation is that the default Gauss-Newton algorithm in `nls()` fails to produce *any* successful model fit and returns an error for each selected test problem, which is similar to the worked out `Rat42` example in the previous section. The Port and (`minpack.lm`) Levenberg-Marquadt algorithms show roughly similar performance, but only converge successfully for half of the test problems. The p-linear algorithm is somewhat special as it is only applicable for regression models that can be factored as a partially linear model. However, if applicable, the p-linear algorithm can be a powerful alternative as demonstrated by the `BoxBOD` problem, where most other (general) NLS routines fail to converge. More precisely, the `BoxBOD` regression model contains only two parameters, and by factoring out the linear parameter, the nonlinear model fit that needs to be optimized by the p-linear algorithm depends only on a single unknown parameter.
+Based on the displayed results, an initial observation is that the default Gauss-Newton algorithm in `nls()` fails to produce *any* successful model fit and returns an error for each selected test problem. The Port and (`minpack.lm`) Levenberg-Marquadt algorithms show roughly similar convergence results, but only successfully converge for half of the evaluated test problems. The p-linear algorithm is somewhat special as it is only applicable for regression models that can be factored into a partially linear model. However, if applicable, the p-linear algorithm can be a powerful alternative as demonstrated by the `BoxBOD` problem, where most other (general) NLS routines fail to converge. More precisely, the `BoxBOD` regression model contains only two parameters, and by factoring out the linear parameter, the nonlinear model fit that needs to be optimized by the p-linear algorithm depends only on a single unknown parameter.
 
 Regarding the GSL routines, for each test problem there exists *at least* one algorithm configuration that is able to produce a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (`lm`, `lmaccel`, `lmaccel+fvv`) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (`lm`), the LM algorithm with geodesic acceleration (`lmaccel`, `lmaccel+fvv`) fails to converge in the `Rat43` problem, but on the other hand the `lmaccel+fvv` algorithm is the *only* GSL routine that is able to produce a successful fit in the `BoxBOD` problem.
 
-Across control parameter configurations, in terms of the scaling method, `more` rescaling (the default) appears to be the most stable, followed by `marqaudt` rescaling and `levenberg` rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (`dogleg`, `ddogleg`, `subspace2D`) and somewhat less for the Levenberg-Marquadt algorithms. In terms of the chosen solver method, the `svd` solver produces slightly more robust results than the `qr` and `cholesky` solver methods, which seems to be in line with the solver method section in the GSL documentation.
+Across control parameter configurations, in terms of the scaling method, `more` rescaling (the default) exhibits the most stable performance, followed by `marqaudt` rescaling and `levenberg` rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (`dogleg`, `ddogleg`, `subspace2D`) and somewhat less for the Levenberg-Marquadt algorithms. In terms of the chosen solver method, the `svd` solver produces slightly more robust results than the `qr` and `cholesky` solver methods, which is in line with the solver method section in the GSL documentation.
 
 ```{r, echo = FALSE, fig.dim = c(9, 7)}
 ## number of successful fits
@@ -757,7 +758,7 @@ gsl_success <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = count)) +
 nls_success <- ggplot(nls_data, aes(x = algorithm, y = label, fill = count)) + 
   scale_x_discrete(guide = guide_axis(angle = 45), position = "top") +
   scale_fill_fermenter(direction = 1, palette = "Spectral", breaks = 0:7, limits = c(0, 7), na.value = "grey70") + 
-  guides(fill = FALSE) + 
+  guides(fill = "none") + 
   labs(title = "Total number of successful model fits") +
   geom_tile(colour = "white") + 
   coord_equal() + 
@@ -772,7 +773,7 @@ nls_success + gsl_success + plot_layout(ncol = 1, widths = c(1, 1), heights = c(
 
 ## Iterations to convergence
 
-As supplementary information, below we display the required number of iterations to reach convergence for each successfully converged NLS routine. In case of a successful model fit, the Port algorithm requires only a small number of iterations to reach convergence. The number of iterations required by the `minpack.lm` Levenberg-Marquadt algorithm and GSL Levenberg-Marquadt algorithm(s) is of the same order of magnitude as one would expect. Among the GSL routines, except for the `MGH09` problem, the general tendency appears to be that the Dogleg-based algorithms (`dogleg`, `ddogleg`, `subspace2D`) require less iterations than the LM-based algorithms. This is illustrated most clearly by the `Rat42` and `Bennet5` plots.
+As supplementary information, we also display the required number of iterations to reach convergence for each successfully converged NLS routine. In case of a successful model fit, the Port algorithm requires only a small number of iterations to reach convergence. The number of iterations required by the `minpack.lm` Levenberg-Marquadt algorithm and GSL Levenberg-Marquadt algorithm(s) is of the same order of magnitude. Among the GSL routines, except for the `MGH09` problem, the general tendency is that the Dogleg-based algorithms (`dogleg`, `ddogleg`, `subspace2D`) require less iterations than the LM-based algorithms. This is illustrated most clearly by the `Rat42` and `Bennet5` plots.
 
 ```{r, echo = FALSE, out.width = "100%", fig.dim = c(14, 32)}
 (h1$iter | h2$iter) / (h3$iter | h4$iter) / (h5$iter | h6$iter) / (h7$iter | h8$iter)
@@ -780,7 +781,7 @@ As supplementary information, below we display the required number of iterations
 
 # Conclusion
 
-In this post, an attempt is made to provide an objective performance comparison between a number of GSL nonlinear least squares routines (available through the `gslnls`-package) as well as several standard NLS algorithms provided by `nls()` and `minpack.lm::nlsLM()` based on a small collection of NIST StRD test problems. For the tested nonlinear regression problems, the GSL algorithms show at least comparable --*and often better*-- optimization performance than the included benchmark algorithms, using mostly standard choices and default values for the GSL trust region method control parameters. As such, the GSL trust region methods provide a useful supplement to the existing suite of nonlinear least squares fitting algorithms available in R, in particular when adequate starting values are difficult to come by and more stable optimization routines (than provided by R's standard methods) are required.
+Based on a small collection of NIST StRD test problems, this post benchmarks the convergence properties of a number of GSL nonlinear least squares routines as well as several standard NLS algorithms that are in common use. For the tested nonlinear regression problems, the GSL algorithms show at least comparable --*and often better*-- optimization performance than the included benchmark algorithms, using mostly standard choices and default values for the GSL trust region method control parameters. As such, the GSL trust region methods provide a useful supplement to the existing suite of nonlinear least squares fitting algorithms available in R, in particular when adequate starting values are difficult to come by and more stable optimization routines (than provided by R's standard methods) are required.
 
 # References
 
