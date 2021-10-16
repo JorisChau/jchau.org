@@ -87,7 +87,7 @@ knitr::knit_hooks$set(output = function(x, options) {
 
 # Introduction
 
-Tha aim of this post is to provide a working approach to perform piecewise constant or [step function](https://en.wikipedia.org/wiki/Step_function) regression in Stan. To set up the regression problem, consider noisy observations $y_1, \ldots, y_n \in \mathbb{R}$ sampled from a standard signal plus i.i.d. Gaussian noise model of the form:
+The aim of this post is to provide a working approach to perform piecewise constant or [step function](https://en.wikipedia.org/wiki/Step_function) regression in Stan. To set up the regression problem, consider noisy observations $y_1, \ldots, y_n \in \mathbb{R}$ sampled from a standard signal plus i.i.d. Gaussian noise model of the form:
 
 $$ 
 \begin{aligned}
