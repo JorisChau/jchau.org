@@ -304,11 +304,11 @@ Observed
 <li><code>"ddogleg"</code>, <a href="https://www.gnu.org/software/gsl/doc/html/nls.html#double-dogleg">Double dogleg algorithm</a></li>
 <li><code>"subspace2D"</code>, <a href="https://www.gnu.org/software/gsl/doc/html/nls.html#two-dimensional-subspace">2D subspace dogleg generalization</a>.</li>
 </ul>
-<p>By default, if the <code>jac</code> argument in the <code>gsl_nls()</code> function is left unspecified, the Jacobian matrix is approximated by (forward) finite differences. Analogously, when geodesic acceleration is used and the <code>fvv</code> argument is left unspecified, the second directional derivatives are approximated by (forward) finite differences. In testing the convergence of the GSL routines, the <code>jac</code> argument is always left unspecified. The Levenberg-Marquadt algorithm with geodesic acceleration is evaluated both with the <code>fvv</code> argument unspecified (denoted by <code>lmaccel</code>) <em>and</em> with <code>fvv = TRUE</code> in which case the second directional derivatives are calculated using symbolic differentiation (denoted by <code>lmaccel+fvv</code>).</p>
+<p>By default, if the <code>jac</code> argument in the <code>gsl_nls()</code> function is left unspecified, the Jacobian matrix is approximated by (forward) finite differences. Analogously, when geodesic acceleration is used and the <code>fvv</code> argument is left unspecified, the second directional derivatives are approximated by (forward) finite differences. In testing the convergence of the GSL routines, the <code>jac</code> argument is always left unspecified. The Levenberg-Marquadt algorithm with geodesic acceleration is evaluated both with the <code>fvv</code> argument unspecified (denoted by <code>lmaccel</code>) <em>and</em> with <code>fvv = TRUE</code> in which case the second directional derivatives are calculated using algorithmic differentiation (denoted by <code>lmaccel+fvv</code>). To further improve the stability of the <code>lmaccel+fvv</code> method, the acceleration/velocity rejection ratio <code>avmax</code> (see <code>?gsl_nls_control</code>) is decreased from its default value 0.75 to 0.5, which was found to perform well for the evaluated test problems. For the standard <code>lmaccel</code> method (without algorithmic derivation of <code>fvv</code>), the <code>avmax</code> control parameter is kept at its default value 0.75.</p>
 </div>
 <div id="scaling-method" class="section level3">
 <h3>Scaling method</h3>
-<p>For the control parameters set with <code>gsl_nls_control()</code>, only the <code>scale</code> and <code>solver</code> parameters are varied, see also <code>?gsl_nls_control</code>. The maximum number of iterations <code>maxiter</code> is increased from the default <code>maxiter = 50</code> to <code>maxiter = 1e4</code> in order to remove the maximum number of iterations as a constraining factor, and the default values are used for all other control parameters available in <code>gsl_nls_control()</code>.</p>
+<p>For the control parameters set with <code>gsl_nls_control()</code>, only the <code>scale</code> and <code>solver</code> parameters are varied, see also <code>?gsl_nls_control</code>. The maximum number of iterations <code>maxiter</code> is increased from the default <code>maxiter = 50</code> to <code>maxiter = 1e4</code> in order to remove the maximum number of iterations as a constraining factor, and the default values are used for the remaining control parameters available in <code>gsl_nls_control()</code>.</p>
 <p>The <code>scale</code> control parameter can take the following values<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>:</p>
 <ul>
 <li><code>"more"</code>, Moré rescaling. This method makes the problem scale-invariant and has been proven effective on a large class of problems.</li>
@@ -552,8 +552,8 @@ nls(
 </ul>
 <p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-13-1.png" width="100%" /></p>
 <p>Based on the displayed results, an initial observation is that the default Gauss-Newton algorithm in <code>nls()</code> fails to produce <em>any</em> successful model fit and returns an error for each selected test problem. The Port and (<code>minpack.lm</code>) Levenberg-Marquadt algorithms show roughly similar convergence results, but only successfully converge for half of the evaluated test problems. The p-linear algorithm is somewhat special as it is only applicable for regression models that can be factored into a partially linear model. However, if applicable, the p-linear algorithm can be a powerful alternative as demonstrated by the <code>BoxBOD</code> problem, where most other (general) NLS routines fail to converge. More precisely, the <code>BoxBOD</code> regression model contains only two parameters, and by factoring out the linear parameter, the nonlinear model fit that needs to be optimized by the p-linear algorithm depends only on a single unknown parameter.</p>
-<p>Regarding the GSL routines, for each test problem there exists <em>at least</em> one algorithm configuration that is able to produce a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (<code>lm</code>, <code>lmaccel</code>, <code>lmaccel+fvv</code>) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (<code>lm</code>), the LM algorithm with geodesic acceleration (<code>lmaccel</code>, <code>lmaccel+fvv</code>) fails to converge in the <code>Rat43</code> problem, but on the other hand the <code>lmaccel+fvv</code> algorithm is the <em>only</em> GSL routine that is able to produce a successful fit in the <code>BoxBOD</code> problem.</p>
-<p>Across control parameter configurations, in terms of the scaling method, <code>more</code> rescaling (the default) exhibits the most stable performance, followed by <code>marqaudt</code> rescaling and <code>levenberg</code> rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (<code>dogleg</code>, <code>ddogleg</code>, <code>subspace2D</code>) and somewhat less for the Levenberg-Marquadt algorithms. In terms of the chosen solver method, the <code>svd</code> solver produces slightly more robust results than the <code>qr</code> and <code>cholesky</code> solver methods, which is in line with the solver method section in the GSL documentation.</p>
+<p>Regarding the GSL routines, for each test problem there exist multiple least-squares algorithms producing a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (<code>lm</code>, <code>lmaccel</code>, <code>lmaccel+fvv</code>) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (<code>lm</code>), the LM algorithm with geodesic acceleration (<code>lmaccel</code>) does not converge for all solver and scaling methods in the <code>Rat43</code> problem. On the other hand, the LM algorithm with geodesic acceleration is more stable in the <code>BoxBOD</code> problem, where the standard LM algorithm suffers from <em>parameter evaporation</em>. The <code>lmaccel+fvv</code> algorithm shows similar performance to the <code>lmaccel</code> algorithm, and successfully converges across all solver and scaling methods in the <code>Rat43</code> problem due to the more conservative <code>avmax</code> tuning parameter. In particular, the <code>lmaccel+fvv</code> algorithm with <code>more</code> rescaling is the only routine that converges successfully for <em>all</em> test problems.</p>
+<p>Across control parameter configurations, in terms of the scaling method, <code>more</code> rescaling (the default) exhibits the most stable performance, followed by <code>marqaudt</code> rescaling and <code>levenberg</code> rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (<code>dogleg</code>, <code>ddogleg</code>, <code>subspace2D</code>) and somewhat less for the Levenberg-Marquadt algorithms. The chosen solver method seems to be less impactful for the evaluated test problems, with the <code>cholesky</code> solver method producing slightly more robust results than the <code>qr</code> and <code>svd</code> solver methods respectively.</p>
 <p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-14-1.png" width="100%" /></p>
 </div>
 <div id="iterations-to-convergence" class="section level2">
@@ -565,6 +565,48 @@ nls(
 <div id="conclusion" class="section level1">
 <h1>Conclusion</h1>
 <p>Based on a small collection of NIST StRD test problems, this post benchmarks the convergence properties of a number of GSL nonlinear least squares routines as well as several standard NLS algorithms that are in common use. For the tested nonlinear regression problems, the GSL algorithms show at least comparable –<em>and often better</em>– optimization performance than the included benchmark algorithms, using mostly standard choices and default values for the GSL trust region method control parameters. As such, the GSL trust region methods provide a useful supplement to the existing suite of nonlinear least squares fitting algorithms available in R, in particular when adequate starting values are difficult to come by and more stable optimization routines (than provided by R’s standard methods) are required.</p>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessionInfo()
+#&gt; R version 4.1.1 (2021-08-10)
+#&gt; Platform: x86_64-pc-linux-gnu (64-bit)
+#&gt; Running under: Ubuntu 18.04.6 LTS
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.7.1
+#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.7.1
+#&gt; 
+#&gt; locale:
+#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+#&gt;  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+#&gt;  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+#&gt;  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+#&gt;  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     
+#&gt; 
+#&gt; other attached packages:
+#&gt; [1] gslnls_1.0.3      NISTnls_0.9-13    patchwork_1.1.1   ggplot2_3.3.5    
+#&gt; [5] data.table_1.14.2 kableExtra_1.3.4  knitr_1.36       
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;  [1] minpack.lm_1.2-1   tidyselect_1.1.1   xfun_0.26          bslib_0.3.1       
+#&gt;  [5] purrr_0.3.4        colorspace_2.0-2   vctrs_0.3.8        generics_0.1.0    
+#&gt;  [9] htmltools_0.5.2    viridisLite_0.4.0  yaml_2.2.1         utf8_1.2.2        
+#&gt; [13] rlang_0.4.11       jquerylib_0.1.4    pillar_1.6.3       glue_1.4.2        
+#&gt; [17] withr_2.4.2        RColorBrewer_1.1-2 lifecycle_1.0.1    stringr_1.4.0     
+#&gt; [21] munsell_0.5.0      blogdown_1.5       gtable_0.3.0       rvest_1.0.1       
+#&gt; [25] evaluate_0.14      labeling_0.4.2     fastmap_1.1.0      fansi_0.5.0       
+#&gt; [29] highr_0.9          scales_1.1.1       webshot_0.5.2      jsonlite_1.7.2    
+#&gt; [33] farver_2.1.0       systemfonts_1.0.2  gridExtra_2.3      digest_0.6.28     
+#&gt; [37] stringi_1.7.4      bookdown_0.24      dplyr_1.0.7        grid_4.1.1        
+#&gt; [41] tools_4.1.1        magrittr_2.0.1     sass_0.4.0         tibble_3.1.5      
+#&gt; [45] crayon_1.4.1       pkgconfig_2.0.3    MASS_7.3-54        ellipsis_0.3.2    
+#&gt; [49] xml2_1.3.2         rmarkdown_2.11     svglite_2.0.0      httr_1.4.2        
+#&gt; [53] rstudioapi_0.13    R6_2.5.1           compiler_4.1.1</code></pre>
 </div>
 <div id="references" class="section level1 unnumbered">
 <h1>References</h1>

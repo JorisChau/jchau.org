@@ -103,7 +103,7 @@ try_gsl_nls <- function(fn, start, data, algorithm, scale, solver, nist_pars) {
         data = data,
         start = start,
         algorithm = sub("\\+fvv", "", algorithm),
-        control = list(maxiter = 1e4, scale = scale, solver = solver),
+        control = list(maxiter = 1e4, scale = scale, solver = solver, avmax = ifelse(grepl("fvv", algorithm), 0.5, 0.75)),
         fvv = grepl("fvv", algorithm)
       )
     )
@@ -317,13 +317,13 @@ datasets <- data.table(
   "# Observations" = c(9, 11, 37, 16, 35, 15, 154, 6),
   "# Parameters" = c(3, 4, 7, 3, 3, 4, 3, 2),
   "Regression model" = c(asis_output("$f(x) = \\dfrac{b_1}{1 + \\exp(b_2 - b_3 x)}$"), 
-              asis_output("$f(x) = \\dfrac{b_1(x^2 + b_2 x)}{x^2 + b_3x + b_4}$"),
-              asis_output("$f(x) = \\dfrac{b_1 + b_2x + b_3x^2 + b_4x^3}{1 + b_5x + b_6x^2 + b_7x^3}$"),
-              asis_output("$f(x) = b_1 \\exp \\left( \\dfrac{b_2}{x + b_3} \\right)$"),
-              asis_output("$f(x) = \\dfrac{b_1}{b_2} \\exp\\left( -\\dfrac{1}{2} \\left(\\dfrac{x - b_3}{b_2}\\right)^2 \\right)$"),
-              asis_output("$f(x) = \\dfrac{b_1}{(1 + \\exp(b_2 - b_3x))^{1/b_4}}$"),
-              asis_output("$f(x) = b_1(b_2 + x)^{-1/b_3}$"),
-              asis_output("$f(x) = b_1(1 - \\exp(-b_2 x))$")),
+                         asis_output("$f(x) = \\dfrac{b_1(x^2 + b_2 x)}{x^2 + b_3x + b_4}$"),
+                         asis_output("$f(x) = \\dfrac{b_1 + b_2x + b_3x^2 + b_4x^3}{1 + b_5x + b_6x^2 + b_7x^3}$"),
+                         asis_output("$f(x) = b_1 \\exp \\left( \\dfrac{b_2}{x + b_3} \\right)$"),
+                         asis_output("$f(x) = \\dfrac{b_1}{b_2} \\exp\\left( -\\dfrac{1}{2} \\left(\\dfrac{x - b_3}{b_2}\\right)^2 \\right)$"),
+                         asis_output("$f(x) = \\dfrac{b_1}{(1 + \\exp(b_2 - b_3x))^{1/b_4}}$"),
+                         asis_output("$f(x) = b_1(b_2 + x)^{-1/b_3}$"),
+                         asis_output("$f(x) = b_1(1 - \\exp(-b_2 x))$")),
   "Certified parameter values" = c(
     asis_output("$[72.462, 2.6181, 0.0673]$"),
     asis_output("$[0.1928, 0.1913, 0.1231, 0.1361]$"),
@@ -455,11 +455,11 @@ Convergence of the nonlinear least-squares routines is tested across a grid of a
 * `"ddogleg"`, [Double dogleg algorithm](https://www.gnu.org/software/gsl/doc/html/nls.html#double-dogleg)
 * `"subspace2D"`, [2D subspace dogleg generalization](https://www.gnu.org/software/gsl/doc/html/nls.html#two-dimensional-subspace).
 
-By default, if the `jac` argument in the `gsl_nls()` function is left unspecified, the Jacobian matrix is approximated by (forward) finite differences. Analogously, when geodesic acceleration is used and the `fvv` argument is left unspecified, the second directional derivatives are approximated by (forward) finite differences. In testing the convergence of the GSL routines, the `jac` argument is always left unspecified. The Levenberg-Marquadt algorithm with geodesic acceleration is evaluated both with the `fvv` argument unspecified (denoted by `lmaccel`) *and* with `fvv = TRUE` in which case the second directional derivatives are calculated using symbolic differentiation (denoted by `lmaccel+fvv`).
+By default, if the `jac` argument in the `gsl_nls()` function is left unspecified, the Jacobian matrix is approximated by (forward) finite differences. Analogously, when geodesic acceleration is used and the `fvv` argument is left unspecified, the second directional derivatives are approximated by (forward) finite differences. In testing the convergence of the GSL routines, the `jac` argument is always left unspecified. The Levenberg-Marquadt algorithm with geodesic acceleration is evaluated both with the `fvv` argument unspecified (denoted by `lmaccel`) *and* with `fvv = TRUE` in which case the second directional derivatives are calculated using algorithmic differentiation (denoted by `lmaccel+fvv`). To further improve the stability of the `lmaccel+fvv` method, the acceleration/velocity rejection ratio `avmax` (see `?gsl_nls_control`) is decreased from its default value 0.75 to 0.5, which was found to perform well for the evaluated test problems. For the standard `lmaccel` method (without algorithmic derivation of `fvv`), the `avmax` control parameter is kept at its default value 0.75.
 
 ### Scaling method
 
-For the control parameters set with `gsl_nls_control()`, only the `scale` and `solver` parameters are varied, see also `?gsl_nls_control`. The maximum number of iterations `maxiter` is increased from the default `maxiter = 50` to `maxiter = 1e4` in order to remove the maximum number of iterations as a constraining factor, and the default values are used for all other control parameters available in `gsl_nls_control()`.
+For the control parameters set with `gsl_nls_control()`, only the `scale` and `solver` parameters are varied, see also `?gsl_nls_control`. The maximum number of iterations `maxiter` is increased from the default `maxiter = 50` to `maxiter = 1e4` in order to remove the maximum number of iterations as a constraining factor, and the default values are used for the remaining control parameters available in `gsl_nls_control()`.
 
 The `scale` control parameter can take the following values[^2]:
 
@@ -719,30 +719,32 @@ h8 <- nls_plots(
 
 Based on the displayed results, an initial observation is that the default Gauss-Newton algorithm in `nls()` fails to produce *any* successful model fit and returns an error for each selected test problem. The Port and (`minpack.lm`) Levenberg-Marquadt algorithms show roughly similar convergence results, but only successfully converge for half of the evaluated test problems. The p-linear algorithm is somewhat special as it is only applicable for regression models that can be factored into a partially linear model. However, if applicable, the p-linear algorithm can be a powerful alternative as demonstrated by the `BoxBOD` problem, where most other (general) NLS routines fail to converge. More precisely, the `BoxBOD` regression model contains only two parameters, and by factoring out the linear parameter, the nonlinear model fit that needs to be optimized by the p-linear algorithm depends only on a single unknown parameter.
 
-Regarding the GSL routines, for each test problem there exists *at least* one algorithm configuration that is able to produce a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (`lm`, `lmaccel`, `lmaccel+fvv`) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (`lm`), the LM algorithm with geodesic acceleration (`lmaccel`, `lmaccel+fvv`) fails to converge in the `Rat43` problem, but on the other hand the `lmaccel+fvv` algorithm is the *only* GSL routine that is able to produce a successful fit in the `BoxBOD` problem.
+Regarding the GSL routines, for each test problem there exist multiple least-squares algorithms producing a successful model fit. Across test problems and control parameter configurations, the GSL Levenberg-Marquadt algorithms with and without geodesic acceleration (`lm`, `lmaccel`, `lmaccel+fvv`) appear to be the most stable, as also seen in the figure below, which displays the total number of successful model fits across test problems. In comparison to the LM algorithm without geodesic acceleration (`lm`), the LM algorithm with geodesic acceleration (`lmaccel`) does not converge for all solver and scaling methods in the `Rat43` problem. On the other hand, the LM algorithm with geodesic acceleration is more stable in the `BoxBOD` problem, where the standard LM algorithm suffers from *parameter evaporation*. The `lmaccel+fvv` algorithm shows similar performance to the `lmaccel` algorithm, and successfully converges across all solver and scaling methods in the `Rat43` problem due to the more conservative `avmax` tuning parameter. In particular, the `lmaccel+fvv` algorithm with `more` rescaling is the only routine that converges successfully for *all* test problems.
 
-Across control parameter configurations, in terms of the scaling method, `more` rescaling (the default) exhibits the most stable performance, followed by `marqaudt` rescaling and `levenberg` rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (`dogleg`, `ddogleg`, `subspace2D`) and somewhat less for the Levenberg-Marquadt algorithms. In terms of the chosen solver method, the `svd` solver produces slightly more robust results than the `qr` and `cholesky` solver methods, which is in line with the solver method section in the GSL documentation.
+Across control parameter configurations, in terms of the scaling method, `more` rescaling (the default) exhibits the most stable performance, followed by `marqaudt` rescaling and `levenberg` rescaling. In the figure below, this is seen most prominently for the different variations of the Dogleg algorithm (`dogleg`, `ddogleg`, `subspace2D`) and somewhat less for the Levenberg-Marquadt algorithms. The chosen solver method seems to be less impactful for the evaluated test problems, with the `cholesky` solver method producing slightly more robust results than the `qr` and `svd` solver methods respectively.
 
 ```{r, echo = FALSE, fig.dim = c(9, 7)}
 ## number of successful fits
 gsl_data <- h8$count$gsl[, .(
   algorithm = factor(algorithm, levels = unique(algorithm)), 
   control = factor(control, levels = unique(control)), 
-  count = as.numeric(count)
+  count = factor(as.character(count), levels = as.character(0:8))
 )]
 nls_data <- h8$count$nls[, .(
   algorithm = factor(algorithm, 
                      levels = c("default", "port", "plinear", "minpack.lm"), 
                      labels = c("Default", "Port", "p-linear", "LM (minpack)")), 
   label = c("Benchmarks"),
-  count = as.numeric(count)
+  count = factor(as.character(count), levels = as.character(0:8))
 )]
 
 gsl_success <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = count)) + 
-  scale_fill_fermenter(direction = 1, palette = "Spectral", breaks = 0:7, limits = c(0, 7), na.value = "grey70") +
+  scale_discrete_manual(aesthetics = "fill", name = "# Successful fits",
+                        values = rev(c(`0` = "#D53E4F", `1` = "#F46D43", `2` = "#FDAE61", `3` = "#FEE08B", 
+                                       `4` = "#FFFFBF", `5` = "#E6F598", `6` = "#ABDDA4", `7` = "#66C2A5", 
+                                       `8` = "#3288BD")), drop = FALSE) +
   scale_y_discrete(limits = rev(levels(gsl_data$algorithm))) +
   scale_x_discrete(guide = guide_axis(angle = 45)) +
-  guides(fill = guide_colorbar(title = "# Successful fits")) + 
   geom_tile(colour = "white") + 
   coord_equal() + 
   theme_minimal(base_size = 16) +
@@ -757,8 +759,10 @@ gsl_success <- ggplot(gsl_data, aes(x = control, y = algorithm, fill = count)) +
 
 nls_success <- ggplot(nls_data, aes(x = algorithm, y = label, fill = count)) + 
   scale_x_discrete(guide = guide_axis(angle = 45), position = "top") +
-  scale_fill_fermenter(direction = 1, palette = "Spectral", breaks = 0:7, limits = c(0, 7), na.value = "grey70") + 
-  guides(fill = "none") + 
+  scale_discrete_manual(aesthetics = "fill", name = "# Successful fits",
+                        values = rev(c(`0` = "#D53E4F", `1` = "#F46D43", `2` = "#FDAE61", `3` = "#FEE08B", 
+                                       `4` = "#FFFFBF", `5` = "#E6F598", `6` = "#ABDDA4", `7` = "#66C2A5", 
+                                       `8` = "#3288BD")), drop = FALSE) +  guides(fill = "none") + 
   labs(title = "Total number of successful model fits") +
   geom_tile(colour = "white") + 
   coord_equal() + 
@@ -782,6 +786,12 @@ As supplementary information, we also display the required number of iterations 
 # Conclusion
 
 Based on a small collection of NIST StRD test problems, this post benchmarks the convergence properties of a number of GSL nonlinear least squares routines as well as several standard NLS algorithms that are in common use. For the tested nonlinear regression problems, the GSL algorithms show at least comparable --*and often better*-- optimization performance than the included benchmark algorithms, using mostly standard choices and default values for the GSL trust region method control parameters. As such, the GSL trust region methods provide a useful supplement to the existing suite of nonlinear least squares fitting algorithms available in R, in particular when adequate starting values are difficult to come by and more stable optimization routines (than provided by R's standard methods) are required.
+
+# Session Info
+
+```{r, eval = TRUE}
+sessionInfo()
+```
 
 # References
 
