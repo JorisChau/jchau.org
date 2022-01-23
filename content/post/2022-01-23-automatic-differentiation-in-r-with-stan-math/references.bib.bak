@@ -1,0 +1,22 @@
+% Encoding: UTF-8
+
+@Article{StanMathPaper,
+  author  = {Carpenter, B. and Hoffman, M.D. and Brubaker, M. and Lee, D. and Li, P. and Betancourt, M.},
+  title   = {The {S}tan math library: {R}everse-mode automatic differentiation in {C}++},
+  journal = {arXiv preprint},
+  year    = {2015},
+  url     = {https://arxiv.org/abs/1509.07164},
+}
+
+@Article{M81,
+  author    = {Mor{\'e}, J.J. and Garbow, B.S. and Hillstrom, K.E.},
+  title     = {Testing unconstrained optimization software},
+  journal   = {ACM Transactions on Mathematical Software (TOMS)},
+  year      = {1981},
+  volume    = {7},
+  number    = {1},
+  pages     = {17--41},
+  publisher = {ACM New York, NY, USA},
+}
+
+@Comment{jabref-meta: databaseType:bibtex;}

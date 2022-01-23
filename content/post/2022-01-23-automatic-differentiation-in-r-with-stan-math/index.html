@@ -1,0 +1,818 @@
+---
+title: Automatic differentiation in R with Stan Math
+author: Joris Chau
+date: '2022-01-23'
+slug: automatic-differentiation-in-r-with-stan-math
+categories:
+  - Statistics
+  - R
+  - Stan
+tags:
+  - R
+  - Stan
+  - Stan Math
+  - Automatic differentation
+  - Reverse-mode AD
+  - gslnls
+  - Nonlinear least squares
+subtitle: "With applications to nonlinear least squares regression"
+summary: ''
+authors: []
+lastmod: '2022-01-23T20:00:00+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: yes
+projects: []
+bibliography: references.bib  
+---
+
+<script src="{{< blogdown/postref >}}index_files/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<div id="automatic-differentiation" class="section level2">
+<h2>Automatic differentiation</h2>
+<p><a href="https://en.wikipedia.org/wiki/Automatic_differentiation">Automatic differentiation (AD)</a> refers to the automatic/algorithmic calculation of derivatives of a function defined as a computer program by repeated application of the <a href="https://en.wikipedia.org/wiki/Chain_rule">chain rule</a>. Automatic differentiation plays an important role in many statistical computing problems, such as gradient-based optimization of large-scale models, where gradient calculation by means of numeric differentiation (i.e. finite-differencing) is not sufficiently accurate or too slow and manual (or <a href="https://en.wikipedia.org/wiki/Computer_algebra">symbolic</a>) differentiation of the function as a mathematical expression is unfeasible. Given its importance, many AD tools have been developed for use in different scientific programming languages, and a large curated list of existing AD libraries can be found at <a href="http://www.autodiff.org">autodiff.org</a>. In this post, we focus on the use of the C++ <a href="https://mc-stan.org/users/interfaces/math">Stan Math library</a>, which contains forward- and reverse-mode AD implementations aimed at probability, linear algebra and ODE applications and is used as the underlying library to perform automatic differentiation in Stan.
+See <span class="citation">(<a href="#ref-StanMathPaper" role="doc-biblioref">Carpenter et al. 2015</a>)</span> for a comprehensive overview of the Stan Math library and instructions on its usage.</p>
+<p>This post requires some working knowledge of Stan and <a href="https://cran.r-project.org/web/packages/Rcpp/index.html">Rcpp</a> in order to write model functions using Stan Math in C++ and expose these functions to R.</p>
+</div>
+<div id="symbolic-differentiation-in-r" class="section level2">
+<h2>Symbolic differentiation in R</h2>
+<div id="base-r" class="section level3">
+<h3>Base R</h3>
+<p>Simple composite expressions and formulas can be derived efficiently using <code>stats::D()</code> for derivatives with respect to a single parameter, or the more general <code>stats::deriv()</code> for (partial) derivatives with respect to multiple parameters. The <code>deriv()</code> function calculates derivatives symbolically by chaining the derivatives of each individual operator/function in the expression tree through repeated application of the chain rule. To illustrate, consider the exponential model:</p>
+<p><span class="math display">\[
+f(x, A, \lambda, b) \ = \ A \exp(-\lambda x) + b
+\]</span></p>
+<p>with independent variable <span class="math inline">\(x\)</span> and parameters <span class="math inline">\(A\)</span>, <span class="math inline">\(\lambda\)</span> and <span class="math inline">\(b\)</span>. Deriving this function manually gives the following gradient:</p>
+<p><span class="math display">\[
+\nabla f \ = \ \left[ \frac{\partial f}{\partial A}, \frac{\partial f}{\partial \lambda}, \frac{\partial f}{\partial b} \right] \ = \ \left[ \exp(-\lambda x), -A \exp(-\lambda x) x, 1 \right]
+\]</span>
+Using the <code>deriv()</code> function, we can obtain the same gradient algorithmically:</p>
+<pre class="r"><code>## gradient function
+(fdot &lt;- deriv(~A * exp(-lam * x) + b, namevec = c(&quot;A&quot;, &quot;lam&quot;, &quot;b&quot;), function.arg = c(&quot;x&quot;, &quot;A&quot;, &quot;lam&quot;, &quot;b&quot;)))
+#&gt; function (x, A, lam, b) 
+#&gt; {
+#&gt;     .expr3 &lt;- exp(-lam * x)
+#&gt;     .value &lt;- A * .expr3 + b
+#&gt;     .grad &lt;- array(0, c(length(.value), 3L), list(NULL, c(&quot;A&quot;, 
+#&gt;         &quot;lam&quot;, &quot;b&quot;)))
+#&gt;     .grad[, &quot;A&quot;] &lt;- .expr3
+#&gt;     .grad[, &quot;lam&quot;] &lt;- -(A * (.expr3 * x))
+#&gt;     .grad[, &quot;b&quot;] &lt;- 1
+#&gt;     attr(.value, &quot;gradient&quot;) &lt;- .grad
+#&gt;     .value
+#&gt; }</code></pre>
+<p>Since we specified the <code>function.arg</code> argument, <code>deriv()</code> returns a function –instead of an expression– that can be used directly to evaluate both the function values and the gradient (or Jacobian) for different values of the independent variable and parameters. Inspecting the body of the returned function, we see that the expression in the <code>"gradient"</code> attribute corresponds exactly to the manually derived gradient.</p>
+<pre class="r"><code>## evaluate function + jacobian
+fdot(x = (1:10) / 10, A = 5, lam = 1.5, b = 1)
+#&gt;  [1] 5.303540 4.704091 4.188141 3.744058 3.361833 3.032848 2.749689 2.505971
+#&gt;  [9] 2.296201 2.115651
+#&gt; attr(,&quot;gradient&quot;)
+#&gt;               A        lam b
+#&gt;  [1,] 0.8607080 -0.4303540 1
+#&gt;  [2,] 0.7408182 -0.7408182 1
+#&gt;  [3,] 0.6376282 -0.9564422 1
+#&gt;  [4,] 0.5488116 -1.0976233 1
+#&gt;  [5,] 0.4723666 -1.1809164 1
+#&gt;  [6,] 0.4065697 -1.2197090 1
+#&gt;  [7,] 0.3499377 -1.2247821 1
+#&gt;  [8,] 0.3011942 -1.2047768 1
+#&gt;  [9,] 0.2592403 -1.1665812 1
+#&gt; [10,] 0.2231302 -1.1156508 1</code></pre>
+<p>Note that the returned matrix in the <code>"gradient"</code> attribute corresponds to the Jacobian matrix, with each row of the matrix containing the partial derivatives with respect to one value <span class="math inline">\(x_i\)</span> of the independent variable.</p>
+<p>The <code>deriv()</code> and <code>D()</code> functions are useful for the derivation of composite expressions of standard arithmetic operators and functions, as commonly used for instance for the specification of simple nonlinear models, (see <code>?deriv</code> for the complete list of operators and functions recognized by <code>deriv()</code>). As such, the scope of these functions is rather limited compared to general AD tools, which can handle function definitions that include control flow statements, concatenations, reductions, matrix algebra, etc.</p>
+<p>Below are some example expressions that cannot be differentiated with <code>deriv()</code>:</p>
+<pre class="r"><code>## reductions
+deriv(~sum((y - x * theta)^2), namevec = &quot;theta&quot;)
+#&gt; Error in deriv.formula(~sum((y - x * theta)^2), namevec = &quot;theta&quot;): Function &#39;sum&#39; is not in the derivatives table
+
+## concatenation/matrix product
+deriv(~X %*% c(theta1, theta2, theta3), namevec = &quot;theta1&quot;)
+#&gt; Error in deriv.formula(~X %*% c(theta1, theta2, theta3), namevec = &quot;theta1&quot;): Function &#39;`%*%`&#39; is not in the derivatives table
+
+## user-defined function
+f &lt;- function(x, y) x^2 + y^2
+deriv(~f(x, y), namevec = &quot;x&quot;)
+#&gt; Error in deriv.formula(~f(x, y), namevec = &quot;x&quot;): Function &#39;f&#39; is not in the derivatives table</code></pre>
+</div>
+<div id="the-deriv-package" class="section level3">
+<h3>The <code>Deriv</code>-package</h3>
+<p>The <code>Deriv()</code> function in the <a href="https://CRAN.R-project.org/package=Deriv">Deriv</a>-package provides a much more flexible symbolic differentiation interface, which also allows custom functions to be added to the derivative table. Using <code>Deriv()</code>, we can produce derivatives in each of the problematic cases above:</p>
+<pre class="r"><code>library(Deriv)
+
+## reductions
+Deriv(~sum((y - x * theta)^2), x = &quot;theta&quot;)
+#&gt; sum(-(2 * (x * (y - theta * x))))
+
+## concatenation/matrix product
+Deriv(~X %*% c(theta1, theta2, theta3), x = &quot;theta1&quot;)
+#&gt; X %*% c(1, 0, 0)
+
+## user-defined function
+f &lt;- function(x, y) x^2 + y^2
+Deriv(~f(x, y), x = &quot;x&quot;)
+#&gt; 2 * x</code></pre>
+<div id="limits-of-symbolic-differentiation-with-deriv" class="section level4">
+<h4>Limits of symbolic differentiation with <code>Deriv</code></h4>
+<p>Even though the <code>Deriv()</code> function is quite powerful in terms of symbolic differentiation, its scope remains limited to
+straightforward expression graphs, with a small number of parameters. For example, consider deriving a polynomial function of degree 10 given by:</p>
+<p><span class="math display">\[
+f(\boldsymbol{\theta}) \ = \ \sum_{k = 0}^{10} \theta_k x^k
+\]</span>
+with parameters <span class="math inline">\(\boldsymbol{\theta} = (\theta_0, \ldots, \theta_{10})\)</span>. Using the <code>Deriv()</code> function, derivative calculation with respect to <span class="math inline">\(\boldsymbol{\theta}\)</span> becomes quite cumbersome, as the complete polynomial needs to be written out as a function of the individual parameters:</p>
+<pre class="r"><code>fpoly &lt;- function(theta0, theta1, theta2, theta3, theta4, theta5, theta6, theta7, theta8, theta9, theta10, x) {
+  sum(c(theta0, theta1, theta2, theta3, theta4, theta5, theta6, theta7, theta8, theta9, theta10) * c(1, x, x^2, x^3, x^4, x^5, x^6, x^7, x^8, x^9, x^10))
+}
+
+Deriv(~fpoly(theta0, theta1, theta2, theta3, theta4, theta5, theta6, theta7, theta8, theta9, theta10, x), 
+      x = c(&quot;theta0&quot;, &quot;theta1&quot;, &quot;theta2&quot;, &quot;theta3&quot;, &quot;theta4&quot;, &quot;theta5&quot;, &quot;theta6&quot;, &quot;theta7&quot;, &quot;theta8&quot;, &quot;theta9&quot;, &quot;theta10&quot;))
+#&gt; {
+#&gt;     .e1 &lt;- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) * c(theta0, theta1, 
+#&gt;         theta2, theta3, theta4, theta5, theta6, theta7, theta8, 
+#&gt;         theta9, theta10)
+#&gt;     .e2 &lt;- c(1, x, x^2, x^3, x^4, x^5, x^6, x^7, x^8, x^9, x^10)
+#&gt;     c(theta0 = sum(.e1 + c(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) * 
+#&gt;         .e2), theta1 = sum(.e1 + c(0, 1, 0, 0, 0, 0, 0, 0, 0, 
+#&gt;     0, 0) * .e2), theta2 = sum(.e1 + c(0, 0, 1, 0, 0, 0, 0, 0, 
+#&gt;     0, 0, 0) * .e2), theta3 = sum(.e1 + c(0, 0, 0, 1, 0, 0, 0, 
+#&gt;     0, 0, 0, 0) * .e2), theta4 = sum(.e1 + c(0, 0, 0, 0, 1, 0, 
+#&gt;     0, 0, 0, 0, 0) * .e2), theta5 = sum(.e1 + c(0, 0, 0, 0, 0, 
+#&gt;     1, 0, 0, 0, 0, 0) * .e2), theta6 = sum(.e1 + c(0, 0, 0, 0, 
+#&gt;     0, 0, 1, 0, 0, 0, 0) * .e2), theta7 = sum(.e1 + c(0, 0, 0, 
+#&gt;     0, 0, 0, 0, 1, 0, 0, 0) * .e2), theta8 = sum(.e1 + c(0, 0, 
+#&gt;     0, 0, 0, 0, 0, 0, 1, 0, 0) * .e2), theta9 = sum(.e1 + c(0, 
+#&gt;     0, 0, 0, 0, 0, 0, 0, 0, 1, 0) * .e2), theta10 = sum(.e1 + 
+#&gt;         c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1) * .e2))
+#&gt; }</code></pre>
+<p>Note also the over-complicated expressions for the calculated derivatives. Preferably, we would write the polynomial function along the lines of:</p>
+<pre class="r"><code>fpoly &lt;- function(theta, x) {
+  y &lt;- theta[1]
+  for(k in 1:10) {
+    y &lt;- y + theta[k + 1] * x^k
+  }
+  return(y)
+}</code></pre>
+<p>and differentiate the polynomial with respect to all elements of <span class="math inline">\(\boldsymbol{\theta}\)</span>. This is a complex symbolic differentation task, but is a natural use-case for (forward- or reverse-mode) automatic differentiation.</p>
+</div>
+</div>
+</div>
+</div>
+<div id="prerequisites" class="section level1">
+<h1>Prerequisites</h1>
+<p>The Stan Math C++ header files are contained within the <a href="https://CRAN.R-project.org/package=StanHeaders">StanHeaders</a>-package and in order to use the Stan Math library, it suffices to install the <code>StanHeaders</code> package in R. At the moment of writing, the CRAN version of <code>StanHeaders</code> is several versions behind the latest Stan release. A more recent version of <code>StanHeaders</code> is available from the package repository at <a href="https://mc-stan.org/r-packages/" class="uri">https://mc-stan.org/r-packages/</a>:</p>
+<pre class="r"><code>## install dependencies
+install.packages(c(&quot;BH&quot;, &quot;Rcpp&quot;, &quot;RcppEigen&quot;, &quot;RcppParallel&quot;))
+install.packages(&quot;StanHeaders&quot;, repos = c(&quot;https://mc-stan.org/r-packages/&quot;, getOption(&quot;repos&quot;)))</code></pre>
+<p>In this post, we compile C++ files making use of Stan Math with <code>Rcpp::sourceCpp()</code>. In order to instruct the C++ compiler about the locations of the header files and shared libraries (in addition to setting some compiler flags), we can execute the following lines of code<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> once at the start of the R session:</p>
+<pre class="r"><code>## update PKG_CXXFLAGS and PKG_LIBS
+Sys.setenv(PKG_CXXFLAGS = StanHeaders:::CxxFlags(as_character = TRUE))
+SH &lt;- system.file(ifelse(.Platform$OS.type == &quot;windows&quot;, &quot;libs&quot;, &quot;lib&quot;), .Platform$r_arch, package = &quot;StanHeaders&quot;, mustWork = TRUE)
+Sys.setenv(PKG_LIBS = paste0(StanHeaders:::LdFlags(as_character = TRUE), &quot; -L&quot;, shQuote(SH), &quot; -lStanHeaders&quot;))</code></pre>
+<pre class="r"><code>Sys.getenv(&quot;PKG_CXXFLAGS&quot;)
+#&gt; [1] &quot;-I&#39;/home/jchau/R/x86_64-pc-linux-gnu-library/4.1/RcppParallel/include&#39; -D_REENTRANT -DSTAN_THREADS&quot;
+Sys.getenv(&quot;PKG_LIBS&quot;)
+#&gt; [1] &quot;-L&#39;/home/jchau/R/x86_64-pc-linux-gnu-library/4.1/RcppParallel/lib/&#39; -Wl,-rpath,&#39;/home/jchau/R/x86_64-pc-linux-gnu-library/4.1/RcppParallel/lib/&#39; -ltbb -ltbbmalloc -L&#39;/home/jchau/R/x86_64-pc-linux-gnu-library/4.1/StanHeaders/lib/&#39; -lStanHeaders&quot;</code></pre>
+<p>The above code can also be included in e.g. <code>~/.Rprofile</code>, so that it is executed automatically when starting a new R session. The above steps are combined in the following dockerfile, which sets up an image based on <a href="https://hub.docker.com/r/rocker/r-ver/">rocker/r-ver:4.1</a> capable of compiling C++ files with <code>Rcpp</code> that use Stan Math.</p>
+<pre class="dockerfile"><code># R-base image
+FROM rocker/r-ver:4.1
+# install dependencies
+RUN R -e &#39;install.packages(c(&quot;BH&quot;, &quot;Rcpp&quot;, &quot;RcppEigen&quot;, &quot;RcppParallel&quot;), repos = &quot;https://cran.r-project.org/&quot;)&#39;
+# install StanHeaders 
+RUN R -e &#39;install.packages(&quot;StanHeaders&quot;, repos = &quot;https://mc-stan.org/r-packages/&quot;)&#39;
+# generate .Rprofile
+RUN R -e &#39;file.create(&quot;/root/.Rprofile&quot;); \ 
+cat(&quot;Sys.setenv(PKG_CXXFLAGS = \&quot;&quot;, StanHeaders:::CxxFlags(as_character = TRUE), &quot;\&quot;)\n&quot;, file = &quot;/root/.Rprofile&quot;); \
+cat(&quot;Sys.setenv(PKG_LIBS = \&quot;&quot;, paste0(StanHeaders:::LdFlags(as_character = TRUE), &quot; -L&quot;, \ 
+shQuote(system.file(&quot;lib&quot;, package = &quot;StanHeaders&quot;)), &quot; -lStanHeaders&quot;), &quot;\&quot;)\n&quot;, file = &quot;/root/.Rprofile&quot;, append = TRUE)&#39;
+# launch R
+CMD [&quot;R&quot;]</code></pre>
+<div id="r-packages-interfacing-stan-math" class="section level4">
+<h4>R-packages interfacing Stan Math</h4>
+<p>If the intention is to use Stan Math in another R-package then the DESCRIPTION file of the package should include:</p>
+<pre><code>LinkingTo: StanHeaders (&gt;= 2.21.0), RcppParallel (&gt;= 5.0.1)
+SystemRequirements: GNU make</code></pre>
+<p>and the following lines can be added to src/Makevars and src/Makevars.win:</p>
+<pre class="r"><code>CXX_STD = CXX14
+PKG_CXXFLAGS = $(shell &quot;$(R_HOME)/bin$(R_ARCH_BIN)/Rscript&quot; -e &quot;RcppParallel::CxxFlags()&quot;) $(shell &quot;$(R_HOME)/bin$(R_ARCH_BIN)/Rscript&quot; -e &quot;StanHeaders:::CxxFlags()&quot;)
+PKG_LIBS = $(shell &quot;$(R_HOME)/bin$(R_ARCH_BIN)/Rscript&quot; -e &quot;RcppParallel::RcppParallelLibs()&quot;) $(shell &quot;$(R_HOME)/bin$(R_ARCH_BIN)/Rscript&quot; -e &quot;StanHeaders:::LdFlags()&quot;)</code></pre>
+<p><strong>Remark</strong>: Instead of manually adding these entries, consider using the <a href="https://mc-stan.org/rstantools/">rstantools</a>-package, which automatically generates the necessary file contents as well as the appropriate folder structure for an R-package interfacing with Stan Math (or Stan in general).</p>
+</div>
+</div>
+<div id="examples" class="section level1">
+<h1>Examples</h1>
+<div id="example-1-polynomial-function" class="section level2">
+<h2>Example 1: Polynomial function</h2>
+<p>As a first minimal example, consider again the polynomial function of degree 10 defined above, but now with the gradient calculated by means of automatic differentiation instead of symbolic differentiation. The automatic differentiation is performed by the <code>stan::math::gradient()</code> functional, which takes the function to derive as an argument in the form of a <a href="https://docs.microsoft.com/en-us/cpp/standard-library/function-objects-in-the-stl?view=msvc-170">functor</a> or a <a href="https://docs.microsoft.com/en-us/cpp/cpp/lambda-expressions-in-cpp?view=msvc-170">lambda expression</a>. In particular, the polynomial function can be encoded as a lambda expression as follows:</p>
+<pre class="cpp"><code>// polynomial function
+[&amp;x](auto theta) {
+  auto y = theta[0];
+  for(int k = 1; k &lt; theta.size(); k++) {
+    y += theta[k] * std::pow(x, k);
+  }
+  return y;
+}</code></pre>
+<p>Here, the <code>[&amp;x]</code> clause <em>captures</em> the <code>x</code> variable from the surrounding scope. Since <code>x</code> is prefixed by an <code>&amp;</code>, the variable <code>x</code> is accessed by reference (instead of by value). The parameter list <code>(auto theta)</code> defines the parameters with respect to which the (partial) derivatives are evaluated, in this case all the elements of the vector <code>theta</code>. The lambda body contains the definition of the function to derive, which is the C++ equivalent of the polynomial definition at the end of the first section.</p>
+<p>The remaining arguments passed to <code>stan::math::gradient()</code> are respectively; an (Eigen) array of parameter values at which to evaluate the gradient, a scalar to hold the value of the evaluated function, and an (Eigen) array to hold the values of the evaluated gradient.</p>
+<p>In order to expose the gradient functional to R, we write a simple Rcpp wrapper function that takes a scalar value <code>x</code> and a numeric vector <code>theta</code> as arguments, and returns the evaluated gradient at <code>x</code> and <code>theta</code> as a numeric vector of the same length as <code>theta</code>. Inserting the necessary <code>Rcpp::depends()</code> and <code>#include</code> statements, analogous to the <a href="https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html">Using the Stan Math C++ Library</a> vignette, we compile the following C++ code with <code>Rcpp::sourceCpp()</code>:</p>
+<pre class="cpp"><code>// [[Rcpp::depends(BH)]]
+// [[Rcpp::depends(RcppEigen)]]
+// [[Rcpp::depends(RcppParallel)]]
+// [[Rcpp::depends(StanHeaders)]]
+#include &lt;stan/math.hpp&gt;  // pulls in everything from rev/ and prim/
+#include &lt;Rcpp.h&gt;
+#include &lt;RcppEigen.h&gt;
+
+// [[Rcpp::plugins(cpp14)]]
+
+// [[Rcpp::export]]
+auto grad_poly(double x, Eigen::VectorXd theta)
+{
+  // declarations
+  double fx;
+  Eigen::VectorXd grad_fx;
+  
+  // gradient calculation
+  stan::math::gradient([&amp;x](auto theta) {
+    // polynomial function
+    auto y = theta[0];
+    for(int k = 1; k &lt; theta.size(); k++) {
+      y += theta[k] * std::pow(x, k);
+    }
+    return y;
+  }, theta, fx, grad_fx);
+  
+  // evaluated gradient
+  return grad_fx;
+}</code></pre>
+<p><strong>Remark</strong>: By default <code>#include &lt;stan/math.hpp&gt;</code> includes the reverse-mode implementation of <code>stan::math::gradient()</code> based on <code>&lt;stan/math/rev.hpp&gt;</code>. To use the forward-mode implementation of <code>stan::math::gradient()</code>, we can first include <code>&lt;stan/math/fwd.hpp&gt;</code> before including <code>&lt;stan/math.hpp&gt;</code> (if also necessary).</p>
+<p>In R, we can now simply call the compiled function <code>grad_poly()</code> to evaluate the reverse-mode gradient of the polynomial function at any given value of <code>x</code> and <code>theta</code><a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>:</p>
+<pre class="r"><code>## evaluated gradient
+grad_poly(x = 0.5, theta = rep(1, 11))
+#&gt;  [1] 1.0000000000 0.5000000000 0.2500000000 0.1250000000 0.0625000000
+#&gt;  [6] 0.0312500000 0.0156250000 0.0078125000 0.0039062500 0.0019531250
+#&gt; [11] 0.0009765625</code></pre>
+<p>which corresponds exactly to the evaluated gradient obtained by deriving the polynomial function analytically:</p>
+<pre class="r"><code>## analytic gradient
+x &lt;- 0.5
+x^(0:10)
+#&gt;  [1] 1.0000000000 0.5000000000 0.2500000000 0.1250000000 0.0625000000
+#&gt;  [6] 0.0312500000 0.0156250000 0.0078125000 0.0039062500 0.0019531250
+#&gt; [11] 0.0009765625</code></pre>
+</div>
+<div id="example-2-exponential-model" class="section level2">
+<h2>Example 2: Exponential model</h2>
+<p>As a second example, we consider calculation of the Jacobian for the exponential model defined above. In order to calculate the (reverse-mode) Jacobian matrix, we use the <code>stan::math::jacobian()</code> functional, which takes the function to derive as an argument in the form of a functor or lambda expression analogous to <code>stan::math::gradient()</code>. The other arguments passed to <code>stan::math::jacobian()</code> are respectively; an (Eigen) array of parameter values at which to evaluate the Jacobian, an (Eigen) array to hold the values of the evaluated function, and an (Eigen) matrix to hold the values of the evaluated Jacobian.</p>
+<p>Similar to the previous example, we define a C++ wrapper function, which in the current example takes as inputs the vector-valued independent variable <code>x</code> and the vector of parameter values <code>theta</code>. The wrapper function returns both the function value and the Jacobian in the same format as <code>deriv()</code> by including the Jacobian matrix in the <code>"gradient"</code> attribute of the evaluated function value. The following C++ code is compiled with <code>Rcpp::sourceCpp()</code>:</p>
+<pre class="cpp"><code>// [[Rcpp::depends(BH)]]
+// [[Rcpp::depends(RcppEigen)]]
+// [[Rcpp::depends(RcppParallel)]]
+// [[Rcpp::depends(StanHeaders)]]
+#include &lt;stan/math.hpp&gt;
+#include &lt;Rcpp.h&gt;
+#include &lt;RcppEigen.h&gt;
+
+// [[Rcpp::plugins(cpp14)]]
+
+using namespace Rcpp;
+
+// [[Rcpp::export]]
+auto fjac_exp(Eigen::VectorXd x, Eigen::VectorXd theta)
+{
+  // declarations
+  Eigen::VectorXd fx;
+  Eigen::MatrixXd jac_fx;
+  
+  // response and jacobian
+  stan::math::jacobian([&amp;x](auto theta) { 
+    // exponential model 
+    return stan::math::add(theta(0) * stan::math::exp(-theta(1) * x), theta(2)); 
+  }, theta, fx, jac_fx);
+  
+  // reformat returned result
+  NumericVector fx1 = wrap(fx);
+  NumericMatrix jac_fx1 = wrap(jac_fx);
+  colnames(jac_fx1) = CharacterVector({&quot;A&quot;, &quot;lam&quot;, &quot;b&quot;});
+  fx1.attr(&quot;gradient&quot;) = jac_fx1;
+  
+  return fx1;
+}</code></pre>
+<p>The exponential model function is expressed concisely using the vectorized functions <code>stan::math::add()</code> and <code>stan::math::exp()</code>. Also, the return type is deduced automatically in the lambda expression and does not need to be specified explicitly. After compilation, we can evaluate the Jacobian of the exponential model in R by calling the <code>jac_exp()</code> function with input values for <code>x</code> and <code>theta</code>:</p>
+<pre class="r"><code>## evaluated jacobian
+fjac_exp(x = (1:10) / 10, theta = c(5, 1.5, 1))
+#&gt;  [1] 5.303540 4.704091 4.188141 3.744058 3.361833 3.032848 2.749689 2.505971
+#&gt;  [9] 2.296201 2.115651
+#&gt; attr(,&quot;gradient&quot;)
+#&gt;               A        lam b
+#&gt;  [1,] 0.8607080 -0.4303540 1
+#&gt;  [2,] 0.7408182 -0.7408182 1
+#&gt;  [3,] 0.6376282 -0.9564422 1
+#&gt;  [4,] 0.5488116 -1.0976233 1
+#&gt;  [5,] 0.4723666 -1.1809164 1
+#&gt;  [6,] 0.4065697 -1.2197090 1
+#&gt;  [7,] 0.3499377 -1.2247821 1
+#&gt;  [8,] 0.3011942 -1.2047768 1
+#&gt;  [9,] 0.2592403 -1.1665812 1
+#&gt; [10,] 0.2231302 -1.1156508 1</code></pre>
+<p>and we can verify that the returned values are equal to the results obtained by symbolic derivation with <code>deriv()</code>:</p>
+<pre class="r"><code>## test for equivalence
+all.equal(
+  fjac_exp(x = (1:10) / 10, theta = c(5, 1.5, 1)),
+  fdot(x = (1:10) / 10, A = 5, lam = 1.5, b = 1)
+)
+#&gt; [1] TRUE</code></pre>
+<div id="nonlinear-least-squares" class="section level3">
+<h3>Nonlinear least squares</h3>
+<div id="simulated-data" class="section level4">
+<h4>Simulated data</h4>
+<p>As an application of the Jacobian calculations, we consider automatic differentiation in the context of gradient-based nonlinear least squares optimization. Let <span class="math inline">\(y_1,\ldots,y_n\)</span> be a set of noisy observations generated from the exponential model function <span class="math inline">\(f(x, A, \lambda, b) = A \exp(-\lambda x) + b\)</span> corrupted by i.i.d. Gaussian noise:</p>
+<p><span class="math display">\[ 
+\left\{
+\begin{aligned}
+y_i &amp;\ = \ f(x_i, A, \lambda, b) + \epsilon_i, \\
+\epsilon_i &amp;\ = \ N(0, \sigma^2), \quad \quad \quad \quad \quad i = 1, \ldots, n
+\end{aligned}
+\right.
+\]</span></p>
+<p>The independent variables <span class="math inline">\(\boldsymbol{x} = (x_1,\ldots,x_n)\)</span>
+are assumed to be known and the parameters <span class="math inline">\(\boldsymbol{\theta} = (A, \lambda, b)&#39;\)</span>
+are the estimation targets. The following code generates <span class="math inline">\(n = 50\)</span> noisy observations
+with model parameters <span class="math inline">\(A = 5\)</span>, <span class="math inline">\(\lambda = 1.5\)</span>, <span class="math inline">\(b = 1\)</span> and noise standard deviation <span class="math inline">\(\sigma = 0.25\)</span>:</p>
+<pre class="r"><code>set.seed(1)
+n &lt;- 50
+x &lt;- (seq_len(n) - 1) * 3 / (n - 1)
+f &lt;- function(x, A, lam, b) A * exp(-lam * x) + b
+y &lt;- f(x, A = 5, lam = 1.5, b = 1) + rnorm(n, sd = 0.25)</code></pre>
+</div>
+<div id="model-fit" class="section level4">
+<h4>Model fit</h4>
+<p>To obtain parameter estimates based on the generated data, we fit the exponential model by means of nonlinear least squares regression with the <code>gsl_nls()</code> function in the <a href="https://cran.r-project.org/web/packages/gslnls/">gslnls</a>-package. The <code>gslnls</code>-package provides R bindings to gradient-based nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>. By default, the <code>gsl_nls()</code> function uses numeric differentiation to evaluate the Jacobian matrix at each step in the nonlinear least squares routine. For simple model formulas, the Jacobian matrix can also be obtained through symbolic differentiation based on <code>stats::deriv()</code>. Using the Stan Math library, we acquire a third automated procedure to evaluate the Jacobian matrix, which is by means of automatic differentiation:</p>
+<pre class="r"><code>library(gslnls)
+
+## symbolic differentiation
+gsl_nls(
+  fn = y ~ A * exp(-lam * x) + b,     ## model formula
+  data = data.frame(x = x, y = y),    ## model fit data
+  start = c(A = 0, lam = 0, b = 0),   ## starting values
+  algorithm = &quot;lm&quot;,                   ## levenberg-marquadt
+  jac = TRUE                          ## symbolic derivation
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ A * exp(-lam * x) + b
+#&gt;    data: data.frame(x = x, y = y)
+#&gt;      A    lam      b 
+#&gt; 4.9905 1.4564 0.9968 
+#&gt;  residual sum-of-squares: 2.104
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 8 
+#&gt; Achieved convergence tolerance: 9.496e-11
+
+## automatic differentiation
+gsl_nls(
+  fn = y ~ fjac_exp(x, c(A, lam, b)),    
+  data = data.frame(x = x, y = y),   
+  start = c(A = 0, lam = 0, b = 0),
+  algorithm = &quot;lm&quot;
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fjac_exp(x, c(A, lam, b))
+#&gt;    data: data.frame(x = x, y = y)
+#&gt;      A    lam      b 
+#&gt; 4.9905 1.4564 0.9968 
+#&gt;  residual sum-of-squares: 2.104
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 8 
+#&gt; Achieved convergence tolerance: 9.496e-11</code></pre>
+<p>In this example, gradient calculation by means of automatic differentiation is unnecessary, as the simple exponential model formula can be derived symbolically requiring much less effort to set up. The next example considers a slightly more complex nonlinear regression problem, where symbolic differentiation is no longer applicable, but automatic differentiation can be used instead.</p>
+</div>
+</div>
+</div>
+<div id="example-3-watson-function" class="section level2">
+<h2>Example 3: Watson function</h2>
+<p>The Watson function is a common test problem in nonlinear least squares optimization and is defined as Problem 20 in <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>)</span>. Consider observations <span class="math inline">\((f_1,\ldots,f_n)\)</span> generated from the following model:</p>
+<p><span class="math display">\[
+\begin{cases}
+f_i &amp; = &amp; \sum_{j = 2}^p (j - 1) \ \theta_j t_i^{j-2} - \left( \sum_{j = 1}^p \theta_j t_i^{j-1}\right) - 1, \quad \quad 1 \leq i \leq n - 2, \\
+f_{n-1} &amp; = &amp; \theta_1, \\
+f_n &amp; = &amp; \theta_2 - \theta_1^2 - 1
+\end{cases}
+\]</span></p>
+<p>with parameters <span class="math inline">\(\boldsymbol{\theta} = (\theta_1,\ldots,\theta_p)\)</span> and independent variables <span class="math inline">\(t_i = i / n\)</span>. Similar to the model definition in <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>)</span>, we set the number of parameters to <span class="math inline">\(p = 6\)</span> and the number of observations to <span class="math inline">\(n = 31\)</span>. The Watson function is encoded in R as follows:</p>
+<pre class="r"><code>f_watson &lt;- function(theta) {
+  n &lt;- 31
+  p &lt;- length(theta)
+  ti &lt;- (1:(n - 2)) / (n - 2)
+  tj &lt;- rep(1, n - 2)
+  sum1 &lt;- rep(theta[1], n - 2)
+  sum2 &lt;- rep(0, n - 2)
+  for(j in 2:p) {
+    sum2 &lt;- sum2 + (j - 1) * theta[j] * tj
+    tj &lt;- tj * ti
+    sum1 &lt;- sum1 + theta[j] * tj
+  }
+  c(sum2 - sum1^2 - 1, theta[1], theta[2] - theta[1]^2 - 1)
+}</code></pre>
+<p>The goal in this example is to find the parameter estimates <span class="math inline">\(\hat{\boldsymbol{\theta}} = (\hat{\theta}_1, \ldots, \hat{\theta}_6)\)</span> that minimize the sum-of-squares (i.e. the least squares estimates):</p>
+<p><span class="math display">\[
+\hat{\boldsymbol{\theta}} \ = \ \arg\min_\theta \sum_{i = 1}^n f_i^2
+\]</span></p>
+<p>which can be solved using the <code>gsl_nls()</code> function (or e.g. <code>minpack.lm::nls.lm()</code>) by passing the nonlinear model as a function and setting the response vector to zero:</p>
+<pre class="r"><code>## numeric differentiation
+(fit1 &lt;- gsl_nls(
+  fn = f_watson,                                     ## model function
+  y = rep(0, 31),                                    ## response vector
+  start = setNames(rep(0, 6), paste0(&quot;theta&quot;, 1:6)), ## start values
+  algorithm = &quot;lm&quot;                                   ## levenberg-marquadt
+))
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fn(theta)
+#&gt;     theta1     theta2     theta3     theta4     theta5     theta6 
+#&gt;  2.017e-21  1.014e+00 -2.441e-01  1.373e+00 -1.685e+00  1.098e+00 
+#&gt;  residual sum-of-squares: 0.002606
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 8 
+#&gt; Achieved convergence tolerance: 1.475e-06
+
+## sum-of-squares
+deviance(fit1)
+#&gt; [1] 0.00260576</code></pre>
+<p>The residual sum-of-squares evaluates to 2.60576e-3, which is (slightly) above the certified minimum of 2.28767e-3
+given in <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>)</span>. Substituting numeric differentiation with symbolic or automatic differentiation leads to more accurate gradient evaluations and may prevent the Levenberg-Marquadt solver from getting stuck in a local optimum as in the above scenario. It is not straightforward to derive the Watson function symbolically with <code>deriv()</code> or <code>Deriv()</code>, so we rely on automatic differentiation instead<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>.</p>
+<p>For the sake of illustration, the Watson function is implemented as a functor instead of a lambda expression<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a>, with a constructor (or initializer) that pre-populates two matrices <code>tj1</code> and <code>tj2</code> containing all terms in the sums above that do not depend on <span class="math inline">\(\boldsymbol{\theta}\)</span>. The model observations <span class="math inline">\((f_1,\ldots,f_n)\)</span> are evaluated by the <code>operator()</code> function, which is a function of (only) the parameters <code>theta</code>, and relies on several matrix/vector operations involving<code>tj1</code>, <code>tj2</code> and <code>theta</code>. After initializing an object of the Watson functor type, it can be passed directly to <code>stan::math::jacobian()</code>. The remainder of the code is recycled from the previous example and the following C++ file is compiled with <code>Rcpp::sourceCpp()</code>:</p>
+<pre class="cpp"><code>// [[Rcpp::depends(BH)]]
+// [[Rcpp::depends(RcppEigen)]]
+// [[Rcpp::depends(RcppParallel)]]
+// [[Rcpp::depends(StanHeaders)]]
+#include &lt;stan/math.hpp&gt;
+#include &lt;Rcpp.h&gt;
+#include &lt;RcppEigen.h&gt;
+
+// [[Rcpp::plugins(cpp14)]]
+
+using namespace Rcpp;
+using stan::math::add;
+using stan::math::multiply;
+using stan::math::square;
+using stan::math::subtract;
+
+struct watson_func {
+
+    // members
+    const size_t n_;
+    Eigen::MatrixXd tj1, tj2;
+
+    // constructor
+    watson_func(size_t n = 31, size_t p = 6) : n_(n) {
+
+      tj1.resize(n - 2, p);
+      tj2.resize(n - 2, p);
+
+      double tj, ti;
+      for (int i = 0; i &lt; n - 2; ++i) {
+        ti = (i + 1) / 29.0;
+        tj = 1.0;
+        tj1(i, 0) = tj;
+        tj2(i, 0) = 0.0;
+        for (int j = 1; j &lt; p; ++j) {
+          tj2(i, j) = j * tj;
+          tj *= ti;
+          tj1(i, j) = tj;
+        }
+      }
+
+    }
+
+    // function definition
+    template &lt;typename T&gt;
+    Eigen::Matrix&lt;T, Eigen::Dynamic, 1&gt;
+    operator()(const Eigen::Matrix&lt;T, Eigen::Dynamic, 1&gt; &amp;theta) const {
+
+      Eigen::Matrix&lt;T, Eigen::Dynamic, 1&gt; fx(n_);
+
+      fx &lt;&lt; subtract(multiply(tj2, theta), add(square(multiply(tj1, theta)), 1.0)),
+          theta(0), theta(1) - theta(0) * theta(0) - 1.0;
+
+      return fx;
+    }
+};
+
+// [[Rcpp::export]]
+auto fjac_watson(Eigen::VectorXd theta, CharacterVector nms) {
+
+  // declarations
+  Eigen::VectorXd fx;
+  Eigen::MatrixXd jac_fx;
+  watson_func wf;
+
+  // response and jacobian
+  stan::math::jacobian(wf, theta, fx, jac_fx);
+
+  // reformat returned result
+  NumericVector fx1 = wrap(fx);
+  NumericMatrix jac_fx1 = wrap(jac_fx);
+  colnames(jac_fx1) = nms;
+  fx1.attr(&quot;gradient&quot;) = jac_fx1;
+
+  return fx1;
+}</code></pre>
+<p>To evaluate the model observations and Jacobian matrix at a given parameter vector <span class="math inline">\(\boldsymbol{\theta}\)</span>, we call the compiled function <code>fjac_watson()</code> in R:</p>
+<pre class="r"><code>## evaluate jacobian
+theta &lt;- coef(fit1)
+fjac_ad &lt;- fjac_watson(theta, names(theta))
+str(fjac_ad)
+#&gt;  num [1:31] 0.000207 -0.007326 -0.010361 -0.010146 -0.007791 ...
+#&gt;  - attr(*, &quot;gradient&quot;)= num [1:31, 1:6] -0.0694 -0.1383 -0.2072 -0.2764 -0.3464 ...
+#&gt;   ..- attr(*, &quot;dimnames&quot;)=List of 2
+#&gt;   .. ..$ : NULL
+#&gt;   .. ..$ : chr [1:6] &quot;theta1&quot; &quot;theta2&quot; &quot;theta3&quot; &quot;theta4&quot; ...</code></pre>
+<p>It can be verified that the following implementation returns the exact analytic Jacobian:</p>
+<pre class="r"><code>## analytic jacobian
+jac_watson &lt;- function(theta) {  
+  n &lt;- 31
+  p &lt;- length(theta)
+  J &lt;- matrix(0, nrow = n, ncol = p, dimnames = list(NULL, names(theta)))
+  ti &lt;- (1:(n - 2)) / (n - 2)
+  tj &lt;- rep(1, n - 2)
+  sum1 &lt;- rep(0, n - 2)
+  for(j in 1:p) {
+    sum1 &lt;- sum1 + theta[j] * tj
+    tj &lt;- tj * ti
+  }
+  tj1 &lt;- rep(1, n - 2)
+  for(j in 1:p) {
+    J[1:(n - 2), j] &lt;- (j - 1) * tj1 / ti - 2 * sum1 * tj1
+    tj1 &lt;- tj1 * ti
+  }
+  J[n - 1, 1] &lt;- 1
+  J[n, 1] &lt;- -2 * theta[1]
+  J[n, 2] &lt;- 1
+  return(J)
+}</code></pre>
+<p>Comparing the Jacobian matrix obtained by automatic differentiation to the analytically derived Jacobian, we see that the results are exactly equivalent:</p>
+<pre class="r"><code>## test for equivalence
+fjac_bench &lt;- f_watson(unname(theta))             ## analytic
+attr(fjac_bench, &quot;gradient&quot;) &lt;- jac_watson(theta)
+all.equal(fjac_ad, fjac_bench)
+#&gt; [1] TRUE</code></pre>
+<p>Next, we plug in the compiled <code>fjac_watson()</code> function to solve the least squares problem again with <code>gsl_nls()</code>, but now using automatic differentiation for the gradient evaluations:</p>
+<pre class="r"><code>## automatic differentiation
+(fit2 &lt;- gsl_nls(
+  fn = fjac_watson,                                  ## model function
+  y = rep(0, 31),                                    ## response vector
+  start = setNames(rep(0, 6), paste0(&quot;theta&quot;, 1:6)), ## start values
+  algorithm = &quot;lm&quot;,                                  ## levenberg-marquadt
+  nms = paste(&quot;theta&quot;, 1:6)                          ## argument of fn
+))
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fn(theta, nms)
+#&gt;   theta1   theta2   theta3   theta4   theta5   theta6 
+#&gt; -0.01573  1.01243 -0.23299  1.26041 -1.51371  0.99299 
+#&gt;  residual sum-of-squares: 0.002288
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 9 
+#&gt; Achieved convergence tolerance: 4.051e-09
+
+## sum-of-squares
+deviance(fit2)
+#&gt; [1] 0.00228767</code></pre>
+<p>The new least squares model fit shows an improvement in the achieved residual sum-of-squares compared to the previous attempt, and now corresponds exactly to the certified minimum in <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>)</span>.</p>
+</div>
+<div id="example-4-ordinary-differential-equation" class="section level2">
+<h2>Example 4: Ordinary differential equation</h2>
+<p>To conclude, we consider a nonlinear regression problem where the model function has no closed-form solution, but is defined implicitly through an ordinary differential equation (ODE). The ordinary differential equation characterizing the nonlinear model is given by:</p>
+<p><span class="math display">\[
+\frac{dy}{dt} \ = \ k (1 - y)^ny^m(-\log(1 - y))^p, \quad \quad y \in (0, 1)
+\]</span>
+with parameters <span class="math inline">\(k\)</span>, <span class="math inline">\(m\)</span>, <span class="math inline">\(n\)</span>, and <span class="math inline">\(p\)</span>, and is also known as the Šestàk-Berggren equation <span class="citation">(<a href="#ref-SB71" role="doc-biblioref">Šesták and Berggren 1971</a>)</span>. It serves as a flexible model for reaction kinetics that encompasses a number of standard reaction kinetic models, see also this <a href="/2021/02/28/estimating-reaction-kinetics-with-stan-and-r">previous post</a>.</p>
+<p>Without a closed-form solution for the nonlinear model function, symbolic derivation by means of <code>deriv()</code> or <code>Deriv()</code> is not applicable and derivation by hand is a very challenging task (if at all possible). Stan Math, however, does support automatic differentiation of integrated ODE solutions, both with respect to parameters as well as the initial states.</p>
+<p>The following code generates <span class="math inline">\(N = 100\)</span> observations <span class="math inline">\((y_1, \ldots, y_N)\)</span> without error from the Šestàk-Berggren model, with parameters <span class="math inline">\(k = 5\)</span>, <span class="math inline">\(n = 1\)</span>, <span class="math inline">\(m = 0\)</span> and <span class="math inline">\(p = 0.75\)</span> corresponding to a sigmoidal Avrami-Erofeyev kinetic model. The differential equation is evaluated at equidistant times <span class="math inline">\(t_i = i / N \in (0, 1]\)</span> with <span class="math inline">\(i = 1,\ldots,N\)</span>, and the initial value is set to <span class="math inline">\(y(0) = 0.001\)</span> and is assumed to be given. Here, the differential equation is integrated with <code>deSolve::ode()</code>, where –for convenience– the model is written as the exponential of a sum of logarithmic terms. Note also that in the derivative function the current value of <span class="math inline">\(y(t)\)</span> is constrained to <span class="math inline">\((0, 1)\)</span> to avoid ill-defined derivatives.</p>
+<pre class="r"><code>library(deSolve)
+
+## model parameters
+N &lt;- 100
+params &lt;- list(logk = log(5), n = 1, m = 0, p = 0.75)
+times &lt;- (1 : N) / N 
+
+## model definition
+f &lt;- function(logk, n, m, p, times) {
+  ode(
+    y = 0.001,
+    times = c(0, times),
+    func = function(t, y, ...) {
+      y1 &lt;- min(max(y, 1e-10), 1 - 1e-10) ## constrain y to unit interval
+      list(dydt = exp(logk + n * log(1 - y1) + m * log(y1) + p * log(-log(1 - y1))))
+    }
+  )[-1, 2]
+}
+
+## model observations
+y &lt;- do.call(f, args = c(params, list(times = times)))</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-28-1.png" width="100%" /></p>
+<p>Analogous to the previous examples, using numerical differentiation of the gradients, we can fit the Šestàk-Berggren model to the generated data with the <code>gsl_nls()</code> function by:</p>
+<pre class="r"><code>## numeric differentiation
+gsl_nls( 
+  fn = y ~ f(logk, n, m, p, times),               ## model formula
+  data = data.frame(times = times, y = y),        ## model data
+  start = list(logk = 0, n = 0, m = 0, p = 0),    ## starting values
+  algorithm = &quot;lm&quot;,                               ## levenberg-marquadt
+  control = list(maxiter = 1e3)
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ f(logk, n, m, p, times)
+#&gt;    data: data.frame(times = times, y = y)
+#&gt;    logk       n       m       p 
+#&gt; 1.61360 0.97395 0.06779 0.68325 
+#&gt;  residual sum-of-squares: 8.485e-07
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 44 
+#&gt; Achieved convergence tolerance: 7.413e-14</code></pre>
+<p>We purposefully made a poor choice of parameter starting values and for this reason the optimized parameters do not correspond very well to the actual parameter values used to generate the data.</p>
+<p>Proceeding with the Stan Math model implementation, the following C++ file encodes the Šestàk-Berggren model including evaluation of the Jacobian using reverse-mode AD and is compiled with <code>Rcpp::sourceCpp()</code>:</p>
+<pre class="cpp"><code>// [[Rcpp::depends(BH)]]
+// [[Rcpp::depends(RcppEigen)]]
+// [[Rcpp::depends(RcppParallel)]]
+// [[Rcpp::depends(StanHeaders)]]
+#include &lt;stan/math.hpp&gt;
+#include &lt;Rcpp.h&gt;
+#include &lt;RcppEigen.h&gt;
+
+// [[Rcpp::plugins(cpp14)]]
+
+using namespace Rcpp;
+using stan::math::exp;
+using stan::math::fmax;
+using stan::math::fmin;
+using stan::math::log1m;
+using stan::math::multiply_log;
+
+struct kinetic_func {
+    template &lt;typename T_t, typename T_y, typename T_theta&gt;
+    Eigen::Matrix&lt;stan::return_type_t&lt;T_t, T_y, T_theta&gt;, Eigen::Dynamic, 1&gt;
+    operator()(const T_t &amp;t, const Eigen::Matrix&lt;T_y, Eigen::Dynamic, 1&gt; &amp;y,
+               std::ostream *msgs, const Eigen::Matrix&lt;T_theta, Eigen::Dynamic, 1&gt; &amp;theta) const {
+
+        Eigen::Matrix&lt;T_y, Eigen::Dynamic, 1&gt; dydt(1);
+
+        T_y y1 = fmin(fmax(y(0), 1e-10), 1.0 - 1e-10); // constrain y to unit interval
+        dydt &lt;&lt; exp(theta(0) + theta(1) * log1m(y1) + multiply_log(theta(2), y1) + multiply_log(theta(3), -log1m(y1))); 
+    
+        return dydt;
+    }
+};
+
+// [[Rcpp::export]]
+auto fjac_kinetic(double logk, double n, double m, double p, NumericVector ts)
+{
+    // initialization
+    Eigen::Matrix&lt;stan::math::var, Eigen::Dynamic, 1&gt; theta(4);
+    theta &lt;&lt; logk, n, m, p;
+
+    Eigen::VectorXd y0(1);
+    y0 &lt;&lt; 0.001;
+
+    kinetic_func kf;
+
+    // ode integration
+    auto ys = stan::math::ode_rk45(kf, y0, 0, as&lt;std::vector&lt;double&gt;&gt;(ts), 0, theta);
+
+    Eigen::VectorXd fx(ts.length());
+    Eigen::MatrixXd jac_fx(4, ts.length());
+
+    // response and jacobian
+    for (int n = 0; n &lt; ts.length(); ++n) {
+        stan::math::set_zero_all_adjoints();
+        ys[n](0).grad();
+        fx(n) = ys[n](0).val();
+        jac_fx.col(n) = theta.adj();
+    }
+
+    // reformat returned result
+    NumericVector fx1 = wrap(fx);
+    jac_fx.transposeInPlace();
+    NumericMatrix jac_fx1 = wrap(jac_fx);
+    colnames(jac_fx1) = CharacterVector({&quot;logk&quot;, &quot;n&quot;, &quot;m&quot;, &quot;p&quot;});
+    fx1.attr(&quot;gradient&quot;) = jac_fx1;
+
+    return fx1;
+}</code></pre>
+<p>Here, the ODE is integrated using the <code>stan::math::ode_rk45()</code> functional<a href="#fn5" class="footnote-ref" id="fnref5"><sup>5</sup></a>. The derivative function of the ODE is passed to <code>stan::math::ode_rk45()</code> in the form of the functor <code>kinetic_func</code>. The functor only defines an <code>operator()</code> method, with a function signature as specified in the Stan Math function documentation<a href="#fn6" class="footnote-ref" id="fnref6"><sup>6</sup></a>. The derivative function in the body of the <code>operator()</code> uses <a href="https://mc-stan.org/docs/2_21/functions-reference/composed-functions.html"><code>log1m</code></a> and <a href="https://mc-stan.org/docs/2_21/functions-reference/composed-functions.html"><code>multiply_log</code></a> for convenience, but other than that is equivalent to the expression used in <code>deSolve::ode()</code> above.</p>
+<p>The vector of model parameters <code>theta</code> passed to <code>stan::math::ode_rk45()</code> is specified as an Eigen vector of type <code>stan::math::var</code>, which allows us to evaluate the time-specific gradients with respect to the parameters after solving the ODE. Instead of using the <code>stan::math::jacobian()</code> functional, the response vector and Jacobian matrix are populated by evaluating the reverse-mode gradient with <code>.grad()</code> applied to the ODE solution <code>ys</code> at each timepoint, and extracting the function values with <code>.val()</code> and the gradients with <code>.adj()</code> (applied to the parameter vector <code>theta</code>).</p>
+<p><strong>Remark</strong>: the functions <code>fmax()</code> and <code>fmin()</code> are not continuously differentiable with respect to their arguments. For automatic differentiation this is not necessarily an issue, but potential difficulties could arise in subsequent gradient-based optimization, as the gradient surface may not everywhere be a smooth function of the parameters. In this example, possible remedies could be replacing the hard cut-offs by smooth constraints or reparameterizing the model in such a way that the response is naturally constrained to the unit interval.</p>
+<p>After compiling the C++ file, we refit the Šestàk-Berggren model to the generated data using the <code>gsl_nls()</code> function, but now with automatic differentiation to evaluate the Jacobian:</p>
+<pre class="r"><code>## automatic differentiation
+gsl_nls( 
+  fn = y ~ fjac_kinetic(logk, n, m, p, times),
+  data = data.frame(times = times, y = y),
+  start = list(logk = 0, n = 0, m = 0, p = 0),
+  algorithm = &quot;lm&quot;, 
+)             
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fjac_kinetic(logk, n, m, p, times)
+#&gt;    data: data.frame(times = times, y = y)
+#&gt;      logk         n         m         p 
+#&gt; 1.6094332 0.9997281 0.0006153 0.7493653 
+#&gt;  residual sum-of-squares: 3.675e-10
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 21 
+#&gt; Achieved convergence tolerance: 4.897e-08</code></pre>
+<p>We observe that the estimated parameters have much better accuracy than in the previous model fit and also require less iterations to reach convergence. The number of iterations can further be reduced by switching to the Levenberg-Marquadt algorithm with geodesic acceleration (<code>algorithm = "lmaccel"</code>), which quickly converges to the correct solution:</p>
+<pre class="r"><code>## levenberg-marquardt w/ geodesic acceleration
+gsl_nls( 
+  fn = y ~ fjac_kinetic(logk, n, m, p, times),
+  data = data.frame(times = times, y = y),
+  start = list(logk = 0, n = 0, m = 0, p = 0),
+  algorithm = &quot;lmaccel&quot;
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fjac_kinetic(logk, n, m, p, times)
+#&gt;    data: data.frame(times = times, y = y)
+#&gt;       logk          n          m          p 
+#&gt;  1.6093727  1.0001089 -0.0003747  0.7503401 
+#&gt;  residual sum-of-squares: 9.04e-11
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt+accel, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 12 
+#&gt; Achieved convergence tolerance: 5.628e-09</code></pre>
+</div>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessionInfo()
+#&gt; R version 4.1.1 (2021-08-10)
+#&gt; Platform: x86_64-pc-linux-gnu (64-bit)
+#&gt; Running under: Ubuntu 20.04.3 LTS
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.9.0
+#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.9.0
+#&gt; 
+#&gt; locale:
+#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+#&gt;  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+#&gt;  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+#&gt;  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+#&gt;  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     
+#&gt; 
+#&gt; other attached packages:
+#&gt; [1] deSolve_1.30  gslnls_1.1.1  Deriv_4.1.3   ggplot2_3.3.5 knitr_1.36   
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;  [1] Rcpp_1.0.7         highr_0.9          bslib_0.3.1        compiler_4.1.1    
+#&gt;  [5] pillar_1.6.3       jquerylib_0.1.4    tools_4.1.1        digest_0.6.29     
+#&gt;  [9] lattice_0.20-45    jsonlite_1.7.2     evaluate_0.14      lifecycle_1.0.1   
+#&gt; [13] tibble_3.1.5       gtable_0.3.0       pkgconfig_2.0.3    rlang_0.4.11      
+#&gt; [17] Matrix_1.4-0       yaml_2.2.1         blogdown_1.5       xfun_0.26         
+#&gt; [21] fastmap_1.1.0      withr_2.4.2        stringr_1.4.0      dplyr_1.0.7       
+#&gt; [25] generics_0.1.0     sass_0.4.0         vctrs_0.3.8        tidyselect_1.1.1  
+#&gt; [29] grid_4.1.1         glue_1.5.1         R6_2.5.1           fansi_0.5.0       
+#&gt; [33] rmarkdown_2.11     bookdown_0.24      farver_2.1.0       purrr_0.3.4       
+#&gt; [37] magrittr_2.0.1     StanHeaders_2.26.4 scales_1.1.1       htmltools_0.5.2   
+#&gt; [41] ellipsis_0.3.2     colorspace_2.0-2   labeling_0.4.2     utf8_1.2.2        
+#&gt; [45] stringi_1.7.4      RcppParallel_5.1.4 munsell_0.5.0      crayon_1.4.1</code></pre>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="ref-StanMathPaper" class="csl-entry">
+Carpenter, B., M. D. Hoffman, M. Brubaker, D. Lee, P. Li, and M. Betancourt. 2015. <span>“The <span>S</span>tan Math Library: <span>R</span>everse-Mode Automatic Differentiation in <span>C</span>++.”</span> <em>arXiv Preprint</em>. <a href="https://arxiv.org/abs/1509.07164">https://arxiv.org/abs/1509.07164</a>.
+</div>
+<div id="ref-M81" class="csl-entry">
+Moré, J. J., B. S. Garbow, and K. E. Hillstrom. 1981. <span>“Testing Unconstrained Optimization Software.”</span> <em>ACM Transactions on Mathematical Software (TOMS)</em> 7 (1): 17–41.
+</div>
+<div id="ref-SB71" class="csl-entry">
+Šesták, J., and G. Berggren. 1971. <span>“Study of the Kinetics of the Mechanism of Solid-State Reactions at Increasing Temperatures.”</span> <em>Thermochimica Acta</em> 3 (1): 1–12.
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>see also the <a href="https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html">Using the Stan Math C++ Library</a> vignette.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>the evaluated gradient does not actually depend on the value of <code>theta</code>, as the gradient does not contain any terms depending on <code>theta</code>.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>the Watson function is still differentiable by hand, but manual derivation of complex nonlinear models in practice quickly becomes cumbersome (as well as error-prone).<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>the functor is defined in the form of a <code>struct</code>, but could also be defined as a <code>class</code>
+(with public method <code>operator()</code>).<a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+<li id="fn5"><p>this functional requires <code>StanHeaders</code> version &gt;= 2.24.<a href="#fnref5" class="footnote-back">↩︎</a></p></li>
+<li id="fn6"><p>the output stream pointer <code>std::ostream *msgs</code> can be provided for messages printed by the integrator, but is not used here.<a href="#fnref6" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
