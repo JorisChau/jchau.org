@@ -3,8 +3,10 @@
 .RData
 .rds
 
-# IDEs
-.idea/
+# old files
+content/post/2021-01-29-demystifying-stein-s-paradox/index_files/header-attrs/
+content/post/2021-02-07-implementing-the-heckman-selection-model-with-stan/index_files/figure-html/unnamed-chunk-3-1.png
+content/post/2021-02-07-implementing-the-heckman-selection-model-with-stan/index_files/figure-html/unnamed-chunk-6-1.png
 
 # Hugo
 resources/
