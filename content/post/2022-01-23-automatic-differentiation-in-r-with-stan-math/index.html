@@ -1,12 +1,12 @@
 ---
 title: Automatic differentiation in R with Stan Math
 author: Joris Chau
-date: '2022-01-23'
+date: '2022-01-24'
 slug: automatic-differentiation-in-r-with-stan-math
 categories:
-  - Statistics
   - R
   - Stan
+  - R-bloggers
 tags:
   - R
   - Stan
@@ -18,7 +18,7 @@ tags:
 subtitle: "With applications to nonlinear least squares regression"
 summary: ''
 authors: []
-lastmod: '2022-01-23T20:00:00+02:00'
+lastmod: '2022-01-24T12:00:00+01:00'
 featured: no
 image:
   placement: 1
@@ -209,16 +209,16 @@ PKG_LIBS = $(shell &quot;$(R_HOME)/bin$(R_ARCH_BIN)/Rscript&quot; -e &quot;RcppP
 <h2>Example 1: Polynomial function</h2>
 <p>As a first minimal example, consider again the polynomial function of degree 10 defined above, but now with the gradient calculated by means of automatic differentiation instead of symbolic differentiation. The automatic differentiation is performed by the <code>stan::math::gradient()</code> functional, which takes the function to derive as an argument in the form of a <a href="https://docs.microsoft.com/en-us/cpp/standard-library/function-objects-in-the-stl?view=msvc-170">functor</a> or a <a href="https://docs.microsoft.com/en-us/cpp/cpp/lambda-expressions-in-cpp?view=msvc-170">lambda expression</a>. In particular, the polynomial function can be encoded as a lambda expression as follows:</p>
 <pre class="cpp"><code>// polynomial function
-[&amp;x](auto theta) {
+[x](auto theta) {
   auto y = theta[0];
   for(int k = 1; k &lt; theta.size(); k++) {
     y += theta[k] * std::pow(x, k);
   }
   return y;
 }</code></pre>
-<p>Here, the <code>[&amp;x]</code> clause <em>captures</em> the <code>x</code> variable from the surrounding scope. Since <code>x</code> is prefixed by an <code>&amp;</code>, the variable <code>x</code> is accessed by reference (instead of by value). The parameter list <code>(auto theta)</code> defines the parameters with respect to which the (partial) derivatives are evaluated, in this case all the elements of the vector <code>theta</code>. The lambda body contains the definition of the function to derive, which is the C++ equivalent of the polynomial definition at the end of the first section.</p>
+<p>Here, the <code>[x]</code> clause <em>captures</em> the <code>x</code> variable by value from the surrounding scope. If <code>x</code> is prefixed by an <code>&amp;</code>, then the variable <code>x</code> is accessed by reference instead. The parameter list <code>(auto theta)</code> defines the parameters with respect to which the (partial) derivatives are evaluated, in this case all the elements of the vector <code>theta</code>. The lambda body contains the definition of the function to derive, which is the C++ equivalent of the polynomial definition at the end of the first section.</p>
 <p>The remaining arguments passed to <code>stan::math::gradient()</code> are respectively; an (Eigen) array of parameter values at which to evaluate the gradient, a scalar to hold the value of the evaluated function, and an (Eigen) array to hold the values of the evaluated gradient.</p>
-<p>In order to expose the gradient functional to R, we write a simple Rcpp wrapper function that takes a scalar value <code>x</code> and a numeric vector <code>theta</code> as arguments, and returns the evaluated gradient at <code>x</code> and <code>theta</code> as a numeric vector of the same length as <code>theta</code>. Inserting the necessary <code>Rcpp::depends()</code> and <code>#include</code> statements, analogous to the <a href="https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html">Using the Stan Math C++ Library</a> vignette, we compile the following C++ code with <code>Rcpp::sourceCpp()</code>:</p>
+<p>In order to expose the gradient functional to R, we write a minimal Rcpp wrapper function that takes a scalar value <code>x</code> and a numeric vector <code>theta</code> as arguments, and returns the evaluated gradient at <code>x</code> and <code>theta</code> as a numeric vector of the same length as <code>theta</code>. Inserting the necessary <code>Rcpp::depends()</code> and <code>#include</code> statements, analogous to the <a href="https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html">Using the Stan Math C++ Library</a> vignette, we compile the following C++ code with <code>Rcpp::sourceCpp()</code>:</p>
 <pre class="cpp"><code>// [[Rcpp::depends(BH)]]
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::depends(RcppParallel)]]
@@ -237,7 +237,7 @@ auto grad_poly(double x, Eigen::VectorXd theta)
   Eigen::VectorXd grad_fx;
   
   // gradient calculation
-  stan::math::gradient([&amp;x](auto theta) {
+  stan::math::gradient([x](auto theta) {
     // polynomial function
     auto y = theta[0];
     for(int k = 1; k &lt; theta.size(); k++) {
@@ -250,13 +250,13 @@ auto grad_poly(double x, Eigen::VectorXd theta)
   return grad_fx;
 }</code></pre>
 <p><strong>Remark</strong>: By default <code>#include &lt;stan/math.hpp&gt;</code> includes the reverse-mode implementation of <code>stan::math::gradient()</code> based on <code>&lt;stan/math/rev.hpp&gt;</code>. To use the forward-mode implementation of <code>stan::math::gradient()</code>, we can first include <code>&lt;stan/math/fwd.hpp&gt;</code> before including <code>&lt;stan/math.hpp&gt;</code> (if also necessary).</p>
-<p>In R, we can now simply call the compiled function <code>grad_poly()</code> to evaluate the reverse-mode gradient of the polynomial function at any given value of <code>x</code> and <code>theta</code><a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>:</p>
+<p>The compiled function <code>grad_poly()</code> can now be called in R to evaluate the reverse-mode gradient of the polynomial function at any given value of <code>x</code> and <code>theta</code><a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>:</p>
 <pre class="r"><code>## evaluated gradient
 grad_poly(x = 0.5, theta = rep(1, 11))
 #&gt;  [1] 1.0000000000 0.5000000000 0.2500000000 0.1250000000 0.0625000000
 #&gt;  [6] 0.0312500000 0.0156250000 0.0078125000 0.0039062500 0.0019531250
 #&gt; [11] 0.0009765625</code></pre>
-<p>which corresponds exactly to the evaluated gradient obtained by deriving the polynomial function analytically:</p>
+<p>and the result corresponds exactly to the evaluated gradient obtained by deriving the polynomial function analytically:</p>
 <pre class="r"><code>## analytic gradient
 x &lt;- 0.5
 x^(0:10)
@@ -350,7 +350,7 @@ y &lt;- f(x, A = 5, lam = 1.5, b = 1) + rnorm(n, sd = 0.25)</code></pre>
 </div>
 <div id="model-fit" class="section level4">
 <h4>Model fit</h4>
-<p>To obtain parameter estimates based on the generated data, we fit the exponential model by means of nonlinear least squares regression with the <code>gsl_nls()</code> function in the <a href="https://cran.r-project.org/web/packages/gslnls/">gslnls</a>-package. The <code>gslnls</code>-package provides R bindings to gradient-based nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>. By default, the <code>gsl_nls()</code> function uses numeric differentiation to evaluate the Jacobian matrix at each step in the nonlinear least squares routine. For simple model formulas, the Jacobian matrix can also be obtained through symbolic differentiation based on <code>stats::deriv()</code>. Using the Stan Math library, we acquire a third automated procedure to evaluate the Jacobian matrix, which is by means of automatic differentiation:</p>
+<p>To obtain parameter estimates based on the generated data, we fit the exponential model by means of nonlinear least squares regression with the <code>gsl_nls()</code> function in the <a href="https://cran.r-project.org/web/packages/gslnls/">gslnls</a>-package. The <code>gslnls</code>-package provides R bindings to gradient-based nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>. By default, the <code>gsl_nls()</code> function uses numeric differentiation to evaluate the Jacobian matrix at each step in the nonlinear least squares routine. For simple model formulas, the Jacobian matrix can also be obtained through symbolic differentiation with <code>deriv()</code>. Using the Stan Math library, we acquire a third automated procedure to evaluate the Jacobian matrix, which is by means of automatic differentiation:</p>
 <pre class="r"><code>library(gslnls)
 
 ## symbolic differentiation
@@ -529,12 +529,18 @@ auto fjac_watson(Eigen::VectorXd theta, CharacterVector nms) {
 <pre class="r"><code>## evaluate jacobian
 theta &lt;- coef(fit1)
 fjac_ad &lt;- fjac_watson(theta, names(theta))
-str(fjac_ad)
-#&gt;  num [1:31] 0.000207 -0.007326 -0.010361 -0.010146 -0.007791 ...
-#&gt;  - attr(*, &quot;gradient&quot;)= num [1:31, 1:6] -0.0694 -0.1383 -0.2072 -0.2764 -0.3464 ...
-#&gt;   ..- attr(*, &quot;dimnames&quot;)=List of 2
-#&gt;   .. ..$ : NULL
-#&gt;   .. ..$ : chr [1:6] &quot;theta1&quot; &quot;theta2&quot; &quot;theta3&quot; &quot;theta4&quot; ...</code></pre>
+
+head(fjac_ad)
+#&gt; [1]  0.0002072888 -0.0073259633 -0.0103607910 -0.0101461310 -0.0077914626
+#&gt; [6] -0.0042573291
+head(attr(fjac_ad, &quot;gradient&quot;))
+#&gt;          theta1    theta2     theta3      theta4       theta5       theta6
+#&gt; [1,] -0.0694320 0.9976058 0.06888296 0.003564335 0.0001639102 7.065941e-06
+#&gt; [2,] -0.1383153 0.9904610 0.13727317 0.014223358 0.0013089380 1.128934e-04
+#&gt; [3,] -0.2071700 0.9785686 0.20467951 0.031875288 0.0044045001 5.701610e-04
+#&gt; [4,] -0.2764276 0.9618721 0.27060304 0.056349528 0.0103964825 1.795947e-03
+#&gt; [5,] -0.3464437 0.9402683 0.33452902 0.087403934 0.0201949051 4.365546e-03
+#&gt; [6,] -0.4175110 0.9136184 0.39592105 0.124720883 0.0346607724 9.003564e-03</code></pre>
 <p>It can be verified that the following implementation returns the exact analytic Jacobian:</p>
 <pre class="r"><code>## analytic jacobian
 jac_watson &lt;- function(theta) {  
@@ -778,18 +784,23 @@ gsl_nls(
 #&gt; [1] deSolve_1.30  gslnls_1.1.1  Deriv_4.1.3   ggplot2_3.3.5 knitr_1.36   
 #&gt; 
 #&gt; loaded via a namespace (and not attached):
-#&gt;  [1] Rcpp_1.0.7         highr_0.9          bslib_0.3.1        compiler_4.1.1    
-#&gt;  [5] pillar_1.6.3       jquerylib_0.1.4    tools_4.1.1        digest_0.6.29     
-#&gt;  [9] lattice_0.20-45    jsonlite_1.7.2     evaluate_0.14      lifecycle_1.0.1   
-#&gt; [13] tibble_3.1.5       gtable_0.3.0       pkgconfig_2.0.3    rlang_0.4.11      
-#&gt; [17] Matrix_1.4-0       yaml_2.2.1         blogdown_1.5       xfun_0.26         
-#&gt; [21] fastmap_1.1.0      withr_2.4.2        stringr_1.4.0      dplyr_1.0.7       
-#&gt; [25] generics_0.1.0     sass_0.4.0         vctrs_0.3.8        tidyselect_1.1.1  
-#&gt; [29] grid_4.1.1         glue_1.5.1         R6_2.5.1           fansi_0.5.0       
-#&gt; [33] rmarkdown_2.11     bookdown_0.24      farver_2.1.0       purrr_0.3.4       
-#&gt; [37] magrittr_2.0.1     StanHeaders_2.26.4 scales_1.1.1       htmltools_0.5.2   
-#&gt; [41] ellipsis_0.3.2     colorspace_2.0-2   labeling_0.4.2     utf8_1.2.2        
-#&gt; [45] stringi_1.7.4      RcppParallel_5.1.4 munsell_0.5.0      crayon_1.4.1</code></pre>
+#&gt;  [1] Rcpp_1.0.7          highr_0.9           bslib_0.3.1        
+#&gt;  [4] compiler_4.1.1      pillar_1.6.3        jquerylib_0.1.4    
+#&gt;  [7] tools_4.1.1         digest_0.6.29       lattice_0.20-45    
+#&gt; [10] jsonlite_1.7.2      evaluate_0.14       lifecycle_1.0.1    
+#&gt; [13] tibble_3.1.5        gtable_0.3.0        pkgconfig_2.0.3    
+#&gt; [16] rlang_0.4.11        Matrix_1.4-0        yaml_2.2.1         
+#&gt; [19] blogdown_1.5        xfun_0.26           fastmap_1.1.0      
+#&gt; [22] withr_2.4.2         stringr_1.4.0       dplyr_1.0.7        
+#&gt; [25] generics_0.1.0      sass_0.4.0          vctrs_0.3.8        
+#&gt; [28] tidyselect_1.1.1    grid_4.1.1          glue_1.5.1         
+#&gt; [31] R6_2.5.1            BH_1.75.0-0         fansi_0.5.0        
+#&gt; [34] rmarkdown_2.11      bookdown_0.24       farver_2.1.0       
+#&gt; [37] purrr_0.3.4         magrittr_2.0.1      StanHeaders_2.26.4 
+#&gt; [40] scales_1.1.1        htmltools_0.5.2     ellipsis_0.3.2     
+#&gt; [43] colorspace_2.0-2    labeling_0.4.2      utf8_1.2.2         
+#&gt; [46] stringi_1.7.4       RcppParallel_5.1.4  munsell_0.5.0      
+#&gt; [49] RcppEigen_0.3.3.9.1 crayon_1.4.1</code></pre>
 </div>
 <div id="references" class="section level1 unnumbered">
 <h1>References</h1>

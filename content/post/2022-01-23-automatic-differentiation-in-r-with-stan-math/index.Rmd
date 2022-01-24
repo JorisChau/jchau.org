@@ -1,12 +1,12 @@
 ---
 title: Automatic differentiation in R with Stan Math
 author: Joris Chau
-date: '2022-01-23'
+date: '2022-01-24'
 slug: automatic-differentiation-in-r-with-stan-math
 categories:
-  - Statistics
   - R
   - Stan
+  - R-bloggers
 tags:
   - R
   - Stan
@@ -18,7 +18,7 @@ tags:
 subtitle: "With applications to nonlinear least squares regression"
 summary: ''
 authors: []
-lastmod: '2022-01-23T20:00:00+02:00'
+lastmod: '2022-01-24T12:00:00+01:00'
 featured: no
 image:
   placement: 1
@@ -228,7 +228,7 @@ As a first minimal example, consider again the polynomial function of degree 10 
 
 ```{Rcpp, eval = FALSE}
 // polynomial function
-[&x](auto theta) {
+[x](auto theta) {
   auto y = theta[0];
   for(int k = 1; k < theta.size(); k++) {
     y += theta[k] * std::pow(x, k);
@@ -237,13 +237,13 @@ As a first minimal example, consider again the polynomial function of degree 10 
 }
 ```
 
-Here, the `[&x]` clause *captures* the `x` variable from the surrounding scope. Since `x` is prefixed by an `&`, the variable `x` is accessed by reference (instead of by value). The parameter list `(auto theta)` defines the parameters with respect to which the (partial) derivatives are evaluated, in this case all the elements of the vector `theta`. The lambda body contains the definition of the function to derive, which is the C++ equivalent of the polynomial definition at the end of the first section. 
+Here, the `[x]` clause *captures* the `x` variable by value from the surrounding scope. If `x` is prefixed by an `&`, then the  variable `x` is accessed by reference instead. The parameter list `(auto theta)` defines the parameters with respect to which the (partial) derivatives are evaluated, in this case all the elements of the vector `theta`. The lambda body contains the definition of the function to derive, which is the C++ equivalent of the polynomial definition at the end of the first section. 
 
 The remaining arguments passed to `stan::math::gradient()` are respectively; an (Eigen) array of parameter values at which to evaluate the gradient, a scalar to hold the value of the evaluated function, and an (Eigen) array to hold the values of the evaluated gradient. 
 
-In order to expose the gradient functional to R, we write a simple Rcpp wrapper function that takes a scalar value `x` and a numeric vector `theta` as arguments, and returns the evaluated gradient at `x` and `theta` as a numeric vector of the same length as `theta`. Inserting the necessary `Rcpp::depends()` and `#include` statements, analogous to the [Using the Stan Math C++ Library](https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html) vignette, we compile the following C++ code with `Rcpp::sourceCpp()`:
+In order to expose the gradient functional to R, we write a minimal Rcpp wrapper function that takes a scalar value `x` and a numeric vector `theta` as arguments, and returns the evaluated gradient at `x` and `theta` as a numeric vector of the same length as `theta`. Inserting the necessary `Rcpp::depends()` and `#include` statements, analogous to the [Using the Stan Math C++ Library](https://cran.r-project.org/web/packages/StanHeaders/vignettes/stanmath.html) vignette, we compile the following C++ code with `Rcpp::sourceCpp()`:
 
-```{Rcpp, cache = TRUE}
+```{Rcpp}
 // [[Rcpp::depends(BH)]]
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::depends(RcppParallel)]]
@@ -262,7 +262,7 @@ auto grad_poly(double x, Eigen::VectorXd theta)
   Eigen::VectorXd grad_fx;
   
   // gradient calculation
-  stan::math::gradient([&x](auto theta) {
+  stan::math::gradient([x](auto theta) {
     // polynomial function
     auto y = theta[0];
     for(int k = 1; k < theta.size(); k++) {
@@ -279,14 +279,14 @@ auto grad_poly(double x, Eigen::VectorXd theta)
 
 **Remark**: By default `#include <stan/math.hpp>` includes the reverse-mode implementation of `stan::math::gradient()` based on `<stan/math/rev.hpp>`. To use the forward-mode implementation of `stan::math::gradient()`, we can first include `<stan/math/fwd.hpp>` before including `<stan/math.hpp>` (if also necessary).
 
-In R, we can now simply call the compiled function `grad_poly()` to evaluate the reverse-mode gradient of the polynomial function at any given value of `x` and `theta`[^2]:
+The compiled function `grad_poly()` can now be called in R to evaluate the reverse-mode gradient of the polynomial function at any given value of `x` and `theta`[^2]:
 
 ```{r}
 ## evaluated gradient
 grad_poly(x = 0.5, theta = rep(1, 11))
 ```
 
-which corresponds exactly to the evaluated gradient obtained by deriving the polynomial function analytically:
+and the result corresponds exactly to the evaluated gradient obtained by deriving the polynomial function analytically:
 
 ```{r}
 ## analytic gradient
@@ -300,7 +300,7 @@ As a second example, we consider calculation of the Jacobian for the exponential
 
 Similar to the previous example, we define a C++ wrapper function, which in the current example takes as inputs the vector-valued independent variable `x` and the vector of parameter values `theta`. The wrapper function returns both the function value and the Jacobian in the same format as `deriv()` by including the Jacobian matrix in the `"gradient"` attribute of the evaluated function value. The following C++ code is compiled with `Rcpp::sourceCpp()`:
 
-```{Rcpp, cache = TRUE}
+```{Rcpp}
 // [[Rcpp::depends(BH)]]
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::depends(RcppParallel)]]
@@ -383,7 +383,7 @@ y <- f(x, A = 5, lam = 1.5, b = 1) + rnorm(n, sd = 0.25)
 
 #### Model fit
 
-To obtain parameter estimates based on the generated data, we fit the exponential model by means of nonlinear least squares regression with the `gsl_nls()` function in the [gslnls](https://cran.r-project.org/web/packages/gslnls/)-package. The `gslnls`-package provides R bindings to gradient-based nonlinear least squares optimization with the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/). By default, the `gsl_nls()` function uses numeric differentiation to evaluate the Jacobian matrix at each step in the nonlinear least squares routine. For simple model formulas, the Jacobian matrix can also be obtained through symbolic differentiation based on `stats::deriv()`. Using the Stan Math library, we acquire a third automated procedure to evaluate the Jacobian matrix, which is by means of automatic differentiation:
+To obtain parameter estimates based on the generated data, we fit the exponential model by means of nonlinear least squares regression with the `gsl_nls()` function in the [gslnls](https://cran.r-project.org/web/packages/gslnls/)-package. The `gslnls`-package provides R bindings to gradient-based nonlinear least squares optimization with the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/). By default, the `gsl_nls()` function uses numeric differentiation to evaluate the Jacobian matrix at each step in the nonlinear least squares routine. For simple model formulas, the Jacobian matrix can also be obtained through symbolic differentiation with `deriv()`. Using the Stan Math library, we acquire a third automated procedure to evaluate the Jacobian matrix, which is by means of automatic differentiation:
 
 ```{r}
 library(gslnls)
@@ -465,7 +465,7 @@ given in [@M81]. Substituting numeric differentiation with symbolic or automatic
 
 For the sake of illustration, the Watson function is implemented as a functor instead of a lambda expression[^4], with a constructor (or initializer) that pre-populates two matrices `tj1` and `tj2` containing all terms in the sums above that do not depend on $\boldsymbol{\theta}$. The model observations $(f_1,\ldots,f_n)$ are evaluated by the `operator()` function, which is a function of (only) the parameters `theta`, and relies on several matrix/vector operations involving`tj1`, `tj2` and `theta`. After initializing an object of the Watson functor type, it can be passed directly to `stan::math::jacobian()`. The remainder of the code is recycled from the previous example and the following C++ file is compiled with `Rcpp::sourceCpp()`:
 
-```{Rcpp, cache = TRUE}
+```{Rcpp}
 // [[Rcpp::depends(BH)]]
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::depends(RcppParallel)]]
@@ -550,7 +550,9 @@ To evaluate the model observations and Jacobian matrix at a given parameter vect
 ## evaluate jacobian
 theta <- coef(fit1)
 fjac_ad <- fjac_watson(theta, names(theta))
-str(fjac_ad)
+
+head(fjac_ad)
+head(attr(fjac_ad, "gradient"))
 ```
 
 It can be verified that the following implementation returns the exact analytic Jacobian:
@@ -670,7 +672,7 @@ We purposefully made a poor choice of parameter starting values and for this rea
 
 Proceeding with the Stan Math model implementation, the following C++ file encodes the Šestàk-Berggren model including evaluation of the Jacobian using reverse-mode AD and is compiled with `Rcpp::sourceCpp()`:
 
-```{Rcpp, cache = TRUE}
+```{Rcpp}
 // [[Rcpp::depends(BH)]]
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::depends(RcppParallel)]]
@@ -772,7 +774,7 @@ gsl_nls(
 
 # Session Info
 
-```{r, eval = TRUE}
+```{r}
 sessionInfo()
 ```
 
