@@ -21,9 +21,10 @@ authors: []
 lastmod: '2022-01-23T20:00:00+02:00'
 featured: no
 image:
+  placement: 1
   caption: ''
   focal_point: ''
-  preview_only: yes
+  preview_only: no
 projects: []
 bibliography: references.bib  
 ---
