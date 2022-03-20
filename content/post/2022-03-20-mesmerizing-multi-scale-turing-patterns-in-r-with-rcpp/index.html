@@ -1,0 +1,86 @@
+---
+title: Mesmerizing multi-scale Turing patterns in R with Rcpp
+author: Joris Chau
+date: '2022-03-20'
+slug: mesmerizing-multi-scale-turing-patterns-in-r-with-rcpp
+categories:
+  - R
+  - Rcpp
+tags:
+  - Turing patterns
+  - R
+  - Rcpp
+  - RcppArmadillo
+  - Generative art
+subtitle: ''
+summary: 'This post showcases several multi-scale Turing patterns generated in R with Rcpp(Armadillo). The generating process, inspired by (McCabe 2010), consists of multi-scale convolutions with respect to short-range activator kernels and long-range inhibitor kernels, computed efficiently in the Fourier domain using RcppArmadillo. Starting from an almost homogeneous state, the algorithm generates regular 2D Turing patterns with smoothly varying behavior across multiple scales that are quite fascinating to look at.'
+authors: []
+lastmod: '2022-03-20T11:00:00+01:00'
+featured: no
+image:
+  placement: 1
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+bibliography: references.bib
+---
+
+<script src="{{< blogdown/postref >}}index_files/header-attrs/header-attrs.js"></script>
+
+
+<style type="text/css">
+div.vimeo {
+  position: relative; 
+  padding-bottom: 56.25%; 
+  height: 720px;
+  width: 100%;
+  overflow: hidden;
+}
+div.vimeo > iframe {
+  position: absolute; 
+  top: 0; 
+  left: 0; 
+  width: 100%; 
+  height: 100%; 
+  border:0;
+}
+</style>
+<div id="multi-scale-turing-patterns" class="section level1">
+<h1>Multi-scale Turing patterns</h1>
+<p><a href="https://en.wikipedia.org/wiki/Turing_pattern">Turing patterns</a> are a type of <a href="https://en.wikipedia.org/wiki/Reaction%E2%80%93diffusion_system">reaction-diffusion systems</a> that have attracted much interest as a basic model for the formation of patterns in nature, such as stripes, spots and spirals. The behavior of such diffusion systems was studied by Alan Turing in his classical paper <span class="citation">(<a href="#ref-t52" role="doc-biblioref">Turing 1952</a>)</span> and a few decades later re-discovered by <span class="citation">(<a href="#ref-gm72" role="doc-biblioref">Gierer and Meinhardt 1972</a>)</span>, which lead to a more widespread use of the systems in biology as well as other fields<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Turing-like patterns involve activating and inhibiting substances that diffuse through a tissue. If the activator substance diffuses at a lower rate than the inhibitor substance, regular concentration patterns can be formed over time, starting from an almost homogeneous, uniform state. In this post, we follow <span class="citation">(<a href="#ref-mc10" role="doc-biblioref">McCabe 2010</a>)</span> by focusing on the concentration of a single substance, which serves both as the activator and inhibitor, and diffuses through a discretized surface in the form of a 2D grid of pixels. The change in concentration at a given location (i.e. pixel) is determined by the convolution with respect to a short-range inner 2D kernel (activator) and a long-range outer 2D kernel (inhibitor). If the difference between the activator and inhibitor convolutions is positive, the concentration increases with a certain amount in the next timestep. If the difference is negative, the concentration decreases in the next timestep. <span class="citation">(<a href="#ref-mc10" role="doc-biblioref">McCabe 2010</a>)</span> extends this basic diffusion model by introducing multiple activator and inhibitor kernels at different scales. The idea is to switch between scales at different locations and timesteps by selecting the scale with the smallest absolute difference between activator and inhibitor convolutions at each location and timestep. The resulting Turing patterns have variation at multiple scales and can produce complex organic looking surfaces.</p>
+<div id="implementation" class="section level2">
+<h2>Implementation</h2>
+<p>I first came across multi-scale Turing patterns in <a href="https://softologyblog.wordpress.com/2011/07/05/multi-scale-turing-patterns/">this post</a> by Jason Rampe, and being quite fascinated by the behavior of the patterns, I thought it would be interesting to write an efficient implementation in R based on 2D convolution with <code>RcppArmadillo</code> (and <code>Rcpp</code>). The R and C++ code is not included with this post, as the current code is not very static and I am adding extra tuning parameters and modifying kernels, colorspaces and interpolation schemes along the way (mostly by trial-and-error) until I am satisfied with the generated results. The generated patterns shown below all use bounded 2D circular or Epanechnikov kernels for the inner (activator) and outer (inhibitor) kernels at up to five different scales, with the radius of the outer kernel around two to three times larger than the inner kernel radius. Kernel convolutions are executed with respect to pre-calculated annuli, where each scale-specific annulus is obtained by taking the difference in densities between the outer and inner kernel. Each evaluated convolution is multiplied by a scale-specific weighting factor and the scale with the smallest absolute variation determines the direction and rate of change in concentration at the next timestep. The main computational bottleneck is the calculation of the kernel convolutions at each location, scale and timestep. These convolutions are performed efficiently in the frequency domain using <a href="http://arma.sourceforge.net/docs.html#fft2">Armadillo</a>’s forward and backward 2D fast Fourier transforms (<code>arma::fft2</code> and <code>arma::ifft2</code>). The showcased patterns are evaluated at 1024x1024 pixels per frame across 300 time frames, taking around 1 minute to generate on a modern laptop computer using a single core (Intel i7-8550U CPU, 1.80GHz). The starting frame is initialized by a single non-zero random concentration value at a random location in the grid and the first 50 frames are excluded as warm-up period.</p>
+<p>The coloring is inspired by Ricky Reusser’s approach<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a> in which the scale with the smallest absolute deviation also determines the direction and rate of change in colorspace at the next timestep by moving closer to a fixed color assigned to the selected scale. The patterns below are all generated in the <a href="https://en.wikipedia.org/wiki/YUV">YUV</a> colorspace by mapping the concentration value directly to the luminance component combined with linear or nonlinear 2D interpolation in the U-V color plane. Another colorspace that can be utilized in a similar manner is the <a href="https://en.wikipedia.org/wiki/YCbCr">YCbCr</a> space by mapping the concentration value to the <em>luma</em> component and considering interpolation in the Cb-Cr color plane.</p>
+</div>
+</div>
+<div id="gallery" class="section level1">
+<h1>Gallery</h1>
+<p>{{% vimeo id="688441029" class="vimeo" %}}</p>
+<p>{{% vimeo id="688844563" class="vimeo" %}}</p>
+<p>{{% vimeo id="689291230" class="vimeo" %}}</p>
+<p>{{% vimeo id="689018571" class="vimeo" %}}</p>
+<p>{{% vimeo id="689018927" class="vimeo" %}}</p>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="ref-gm72" class="csl-entry">
+Gierer, A., and H. Meinhardt. 1972. <span>“A Theory of Biological Pattern Formation.”</span> <em>Kybernetik</em> 12 (1): 30–39. <a href="https://doi.org/10.1007/BF00289234">https://doi.org/10.1007/BF00289234</a>.
+</div>
+<div id="ref-mc10" class="csl-entry">
+McCabe, J. 2010. <span>“Cyclic Symmetric Multi-Scale <span>T</span>uring Patterns.”</span> In <em>Proceedings of Bridges 2010: Mathematics, Music, Art, Architecture, Culture</em>, 387–90. <a href="http://www.jonathanmccabe.com/Cyclic_Symmetric_Multi-Scale_Turing_Patterns.pdf">http://www.jonathanmccabe.com/Cyclic_Symmetric_Multi-Scale_Turing_Patterns.pdf</a>.
+</div>
+<div id="ref-t52" class="csl-entry">
+Turing, A. M. 1952. <span>“The Chemical Basis of Morphogenesis.”</span> <em>Philosophical Transactions of the Royal Society B</em> 237: 37–72. <a href="https://doi.org/10.1098/rstb.1952.0012">https://doi.org/10.1098/rstb.1952.0012</a>.
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p><a href="https://www.chemistryworld.com/features/turing-patterns/4991.article" class="uri">https://www.chemistryworld.com/features/turing-patterns/4991.article</a><a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p><a href="https://rreusser.github.io/multiscale-turing-pattern-gallery/" class="uri">https://rreusser.github.io/multiscale-turing-pattern-gallery/</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

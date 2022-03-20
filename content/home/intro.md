@@ -13,6 +13,9 @@ subtitle: Blogging mostly about Statistics and R
 
 design:
   background:
-    color: '#090a0b'
+    gradient_start: '#282a36'
+    gradient_end: '#090a0b'
+    gradient_angle: 180
+    # Text color (true=light, false=dark, or remove for the dynamic theme color).
     text_color_light: true
 ---

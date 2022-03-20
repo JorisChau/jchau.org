@@ -1,0 +1,106 @@
+---
+title: Mesmerizing multi-scale Turing patterns in R with Rcpp
+author: Joris Chau
+date: '2022-03-20'
+slug: mesmerizing-multi-scale-turing-patterns-in-r-with-rcpp
+categories:
+  - R
+  - Rcpp
+tags:
+  - Turing patterns
+  - R
+  - Rcpp
+  - RcppArmadillo
+  - Generative art
+subtitle: ''
+summary: 'This post showcases several multi-scale Turing patterns generated in R with Rcpp(Armadillo). The generating process, inspired by (McCabe 2010), consists of multi-scale convolutions with respect to short-range activator kernels and long-range inhibitor kernels, computed efficiently in the Fourier domain using RcppArmadillo. Starting from an almost homogeneous state, the algorithm generates regular 2D Turing patterns with smoothly varying behavior across multiple scales that are quite fascinating to look at.'
+authors: []
+lastmod: '2022-03-20T11:00:00+01:00'
+featured: no
+image:
+  placement: 1
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+bibliography: references.bib
+---
+
+```{css, echo=FALSE}
+div.vimeo {
+  position: relative; 
+  padding-bottom: 56.25%; 
+  height: 720px;
+  width: 100%;
+  overflow: hidden;
+}
+div.vimeo > iframe {
+  position: absolute; 
+  top: 0; 
+  left: 0; 
+  width: 100%; 
+  height: 100%; 
+  border:0;
+}
+```
+
+
+```{r setup, include=FALSE}
+library(knitr)
+
+opts_chunk$set(collapse = TRUE, echo = FALSE, comment = "#>", out.width = "100%")
+
+# save the built-in output hook
+hook_output <- knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+```
+
+# Multi-scale Turing patterns
+
+[Turing patterns](https://en.wikipedia.org/wiki/Turing_pattern) are a type of [reaction-diffusion systems](https://en.wikipedia.org/wiki/Reaction%E2%80%93diffusion_system) that have attracted much interest as a basic model for the formation of patterns in nature, such as stripes, spots and spirals. The behavior of such diffusion systems was studied by Alan Turing in his classical paper [@t52] and a few decades later re-discovered by [@gm72], which lead to a more widespread use of the systems in biology as well as other fields[^1]. Turing-like patterns involve activating and inhibiting substances that diffuse through a tissue. If the activator substance diffuses at a lower rate than the inhibitor substance, regular concentration patterns can be formed over time, starting from an almost homogeneous, uniform state. In this post, we follow [@mc10] by focusing on the concentration of a single substance, which serves both as the activator and inhibitor, and diffuses through a discretized surface in the form of a 2D grid of pixels. The change in concentration at a given location (i.e. pixel) is determined by the convolution with respect to a short-range inner 2D kernel (activator) and a long-range outer 2D kernel (inhibitor). If the difference between the activator and inhibitor convolutions is positive, the concentration increases with a certain amount in the next timestep. If the difference is negative, the concentration decreases in the next timestep. [@mc10] extends this basic diffusion model by introducing multiple activator and inhibitor kernels at different scales. The idea is to switch between scales at different locations and timesteps by selecting the scale with the smallest absolute difference between activator and inhibitor convolutions at each location and timestep. The resulting Turing patterns have variation at multiple scales and can produce complex organic looking surfaces. 
+
+## Implementation 
+
+I first came across multi-scale Turing patterns in [this post](https://softologyblog.wordpress.com/2011/07/05/multi-scale-turing-patterns/) by Jason Rampe, and being quite fascinated by the behavior of the patterns, I thought it would be interesting to write an efficient implementation in R based on 2D convolution with `RcppArmadillo` (and `Rcpp`). The R and C++ code is not included with this post, as the current code is not very static and I am adding extra tuning parameters and modifying kernels, colorspaces and interpolation schemes along the way (mostly by trial-and-error) until I am satisfied with the generated results. The generated patterns shown below all use bounded 2D circular or Epanechnikov kernels for the inner (activator) and outer (inhibitor) kernels at up to five different scales, with the radius of the outer kernel around two to three times larger than the inner kernel radius. Kernel convolutions are executed with respect to pre-calculated annuli, where each scale-specific annulus is obtained by taking the difference in densities between the outer and inner kernel. Each evaluated convolution is multiplied by a scale-specific weighting factor and the scale with the smallest absolute variation determines the direction and rate of change in concentration at the next timestep. The main computational bottleneck is the calculation of the kernel convolutions at each location, scale and timestep. These convolutions are performed efficiently in the frequency domain using [Armadillo](http://arma.sourceforge.net/docs.html#fft2)'s forward and backward 2D fast Fourier transforms (`arma::fft2` and `arma::ifft2`). The showcased patterns are evaluated at 1024x1024 pixels per frame across 300 time frames, taking around 1 minute to generate on a modern laptop computer using a single core (Intel i7-8550U CPU, 1.80GHz). The starting frame is initialized by a single non-zero random concentration value at a random location in the grid and the first 50 frames are excluded as warm-up period.
+
+The coloring is inspired by Ricky Reusser's approach[^2] in which the scale with the smallest absolute deviation also determines the direction and rate of change in colorspace at the next timestep by moving closer to a fixed color assigned to the selected scale. The patterns below are all generated in the [YUV](https://en.wikipedia.org/wiki/YUV) colorspace by mapping the concentration value directly to the luminance component combined with linear or nonlinear 2D interpolation in the U-V color plane. Another colorspace that can be utilized in a similar manner is the [YCbCr](https://en.wikipedia.org/wiki/YCbCr) space by mapping the concentration value to the *luma* component and considering interpolation in the Cb-Cr color plane.  
+
+# Gallery
+
+```{r}
+blogdown::shortcode(.name = "vimeo", id = "688441029", class = "vimeo")
+```
+
+```{r}
+blogdown::shortcode(.name = "vimeo", id = "688844563", class = "vimeo")
+```
+
+```{r}
+blogdown::shortcode(.name = "vimeo", id = "689291230", class = "vimeo")
+```
+
+```{r}
+blogdown::shortcode(.name = "vimeo", id = "689018571", class = "vimeo")
+```
+
+```{r}
+blogdown::shortcode(.name = "vimeo", id = "689018927", class = "vimeo")
+```
+
+# References
+
+[^1]: https://www.chemistryworld.com/features/turing-patterns/4991.article
+
+[^2]: https://rreusser.github.io/multiscale-turing-pattern-gallery/
