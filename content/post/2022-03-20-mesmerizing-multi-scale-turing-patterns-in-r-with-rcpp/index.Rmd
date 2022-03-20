@@ -6,6 +6,7 @@ slug: mesmerizing-multi-scale-turing-patterns-in-r-with-rcpp
 categories:
   - R
   - Rcpp
+  - R-bloggers
 tags:
   - Turing patterns
   - R
@@ -15,7 +16,7 @@ tags:
 subtitle: ''
 summary: 'This post showcases several multi-scale Turing patterns generated in R with Rcpp(Armadillo). The generating process, inspired by (McCabe 2010), consists of multi-scale convolutions with respect to short-range activator kernels and long-range inhibitor kernels, computed efficiently in the Fourier domain using RcppArmadillo. Starting from an almost homogeneous state, the algorithm generates regular 2D Turing patterns with smoothly varying behavior across multiple scales that are quite fascinating to look at.'
 authors: []
-lastmod: '2022-03-20T11:00:00+01:00'
+lastmod: '2022-03-20T21:00:00+01:00'
 featured: no
 image:
   placement: 1
@@ -44,29 +45,6 @@ div.vimeo > iframe {
 }
 ```
 
-
-```{r setup, include=FALSE}
-library(knitr)
-
-opts_chunk$set(collapse = TRUE, echo = FALSE, comment = "#>", out.width = "100%")
-
-# save the built-in output hook
-hook_output <- knit_hooks$get("output")
-
-# set a new output hook to truncate text output
-knit_hooks$set(output = function(x, options) {
-  if (!is.null(n <- options$out.lines)) {
-    x <- xfun::split_lines(x)
-    if (length(x) > n) {
-      # truncate the output
-      x <- c(head(x, n), "....\n")
-    }
-    x <- paste(x, collapse = "\n")
-  }
-  hook_output(x, options)
-})
-```
-
 # Multi-scale Turing patterns
 
 [Turing patterns](https://en.wikipedia.org/wiki/Turing_pattern) are a type of [reaction-diffusion systems](https://en.wikipedia.org/wiki/Reaction%E2%80%93diffusion_system) that have attracted much interest as a basic model for the formation of patterns in nature, such as stripes, spots and spirals. The behavior of such diffusion systems was studied by Alan Turing in his classical paper [@t52] and a few decades later re-discovered by [@gm72], which lead to a more widespread use of the systems in biology as well as other fields[^1]. Turing-like patterns involve activating and inhibiting substances that diffuse through a tissue. If the activator substance diffuses at a lower rate than the inhibitor substance, regular concentration patterns can be formed over time, starting from an almost homogeneous, uniform state. In this post, we follow [@mc10] by focusing on the concentration of a single substance, which serves both as the activator and inhibitor, and diffuses through a discretized surface in the form of a 2D grid of pixels. The change in concentration at a given location (i.e. pixel) is determined by the convolution with respect to a short-range inner 2D kernel (activator) and a long-range outer 2D kernel (inhibitor). If the difference between the activator and inhibitor convolutions is positive, the concentration increases with a certain amount in the next timestep. If the difference is negative, the concentration decreases in the next timestep. [@mc10] extends this basic diffusion model by introducing multiple activator and inhibitor kernels at different scales. The idea is to switch between scales at different locations and timesteps by selecting the scale with the smallest absolute difference between activator and inhibitor convolutions at each location and timestep. The resulting Turing patterns have variation at multiple scales and can produce complex organic looking surfaces. 
@@ -79,23 +57,23 @@ The coloring is inspired by Ricky Reusser's approach[^2] in which the scale with
 
 # Gallery
 
-```{r}
+```{r, echo=FALSE}
 blogdown::shortcode(.name = "vimeo", id = "688441029", class = "vimeo")
 ```
 
-```{r}
+```{r, echo=FALSE}
 blogdown::shortcode(.name = "vimeo", id = "688844563", class = "vimeo")
 ```
 
-```{r}
+```{r, echo=FALSE}
 blogdown::shortcode(.name = "vimeo", id = "689291230", class = "vimeo")
 ```
 
-```{r}
+```{r, echo=FALSE}
 blogdown::shortcode(.name = "vimeo", id = "689018571", class = "vimeo")
 ```
 
-```{r}
+```{r, echo=FALSE}
 blogdown::shortcode(.name = "vimeo", id = "689018927", class = "vimeo")
 ```
 
