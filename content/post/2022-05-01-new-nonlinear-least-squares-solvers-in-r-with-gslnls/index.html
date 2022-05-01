@@ -1,0 +1,372 @@
+---
+title: New nonlinear least squares solvers in R with {gslnls}
+author: Joris Chau
+date: '2022-05-01'
+slug: new-nonlinear-least-squares-solvers-in-R-with-gslnls
+categories:
+  - Statistics
+  - R
+tags:
+  - gslnls
+  - R
+  - Nonlinear least squares
+  - GSL
+  - GNU Scientific Library
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2022-05-01T00:00:00+02:00'
+featured: no
+image:
+  caption: ''
+  focal_point: 'Center'
+  preview_only: yes
+projects: []
+bibliography: references.bib  
+---
+
+<script src="{{< blogdown/postref >}}index_files/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<div id="nonlinear-least-squares-in-r" class="section level2">
+<h2>Nonlinear least squares in R</h2>
+<p>Solving a nonlinear least squares problem consists of minimizing a least squares objective function made up of residuals <span class="math inline">\(g_1(\boldsymbol{\theta}), \ldots, g_n(\boldsymbol{\theta})\)</span> that are <strong>nonlinear</strong> functions of the parameters of interest <span class="math inline">\(\boldsymbol{\theta} = (\theta_1,\ldots, \theta_p)&#39;\)</span>:</p>
+<p><span class="math display">\[
+\boldsymbol{\theta}^* \ = \ \arg \min_{\boldsymbol{\theta}} \frac{1}{2} \Vert g(\boldsymbol{\theta}) \Vert^2 
+\]</span>
+In the context of regression, this problem is usually formulated as:</p>
+<p><span class="math display">\[
+\begin{aligned}
+\boldsymbol{\theta}^* &amp; \ = \ \arg \min_{\boldsymbol{\theta}} \frac{1}{2} \Vert \boldsymbol{y} - f(\boldsymbol{\theta}) \Vert^2 \\
+&amp; \ = \ \arg \min_{\boldsymbol{\theta}} \frac{1}{2} \sum_{i = 1}^n (y_i - f_i(\boldsymbol{\theta}))^2
+\end{aligned}
+\]</span></p>
+<p>where <span class="math inline">\(\boldsymbol{y}\)</span> is the vector of data observations and <span class="math inline">\(f(\boldsymbol{\theta})\)</span> is a nonlinear model function in terms of the parameters <span class="math inline">\(\theta_1,\ldots,\theta_p\)</span>.</p>
+<p>Most standard nonlinear least squares solvers, such as the <a href="https://en.wikipedia.org/wiki/Gauss%E2%80%93Newton_algorithm">Gauss-Newton method</a> or the <a href="https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm">Levenberg-Marquardt algorithm</a>, attempt to find a <em>local</em> minimum of the objective function by making iterative steps in the direction of the solution informed by the gradient of a first- or second-order Taylor approximation of the nonlinear objective function.</p>
+<p>The default function to solve nonlinear least squares problems in R, <code>nls()</code>, includes the following gradient-based solvers:</p>
+<ul>
+<li><code>"default"</code>, the Gauss-Newton method</li>
+<li><code>"plinear"</code>, the Golub-Pereyra algorithm for partially linear least-squares</li>
+<li><code>"port"</code>, the <code>nls2sol</code> algorithm from the <a href="https://www.netlib.org/port/">Port</a> library with parameter bounds constraints</li>
+</ul>
+<p>External R-packages aimed at nonlinear least squares optimization include the popular <code>minpack.lm</code> package or John Nash’s <code>nlsr</code> package. The <code>minpack.lm</code> package provides an interface to a modified Levenberg-Marquardt algorithm from the MINPACK library. The <code>nlsr</code> package implements a variant of the Marquardt algorithm (<span class="citation"><a href="#ref-N77" role="doc-biblioref">Nash</a> (<a href="#ref-N77" role="doc-biblioref">1977</a>)</span>) with a strong emphasis on symbolic differentiation of the nonlinear model function. A comprehensive overview of R-packages to solve nonlinear least squares problems can be found in the Least-Squares Problems section of the <a href="https://cran.r-project.org/web/views/Optimization.html">CRAN Optimization task view</a>.</p>
+<div id="new-gsl-nonlinear-least-squares-solvers" class="section level3">
+<h3>New GSL nonlinear least squares solvers</h3>
+<p>The new <a href="https://CRAN.R-project.org/package=gslnls"><code>gslnls</code></a>-package augments the existing suite of nonlinear least squares solvers available in R by providing R bindings to nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>
+using the trust region methods implemented by the <code>gsl_multifit_nlinear</code> and <code>gsl_multilarge_nlinear</code> modules. These modules where added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in <span class="citation"><a href="#ref-G09" role="doc-biblioref">Galassi et al.</a> (<a href="#ref-G09" role="doc-biblioref">2009</a>)</span>.</p>
+<p>The following trust region methods to solve nonlinear least-squares problems are available in the <code>gsnls</code>-package:</p>
+<ul>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt">Levenberg-Marquardt</a></li>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt-with-geodesic-acceleration">Levenberg-Marquardt with geodesic acceleration</a></li>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#dogleg">Dogleg</a></li>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#double-dogleg">Double dogleg</a></li>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#two-dimensional-subspace">Two Dimensional Subspace</a></li>
+<li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#steihaug-toint-conjugate-gradient">Steihaug-Toint Conjugate Gradient</a> (only for large-scale problems)</li>
+</ul>
+</div>
+</div>
+</div>
+<div id="howwhen-to-use-gslnls" class="section level1">
+<h1>How/when to use {gslnls}</h1>
+<p>The function <code>gsl_nls()</code> solves small to moderate sized nonlinear least-squares problems using either numeric or symbolic differentiation of the Jacobian matrix. For (very) large problems, where factoring the full Jacobian matrix becomes prohibitively expensive, the <code>gsl_nls_large()</code> function can be used to minimize the least squares objective. The <code>gsl_nls_large()</code> function is also appropriate for systems with sparse structure in the Jacobian matrix allowing to reduce required memory and further speed up computations. Both functions use the same interface as R’s default <code>nls()</code> function similar to <code>minpack.lm::nlsLM()</code> and the returned fit objects inherit from the class <code>"nls"</code>. For this reason, all generic functions available for <code>"nls"</code>-objects, such as <code>summary()</code>, <code>confint()</code>, <code>predict()</code>, etc., are also applicable to objects returned by <code>gsl_nls()</code> or <code>gsl_nls_large()</code>.</p>
+<div id="boxbod-regression-problem" class="section level2">
+<h2>BoxBOD regression problem</h2>
+<p>As a demonstrating example, consider the Biochemical Oxygen Demand (BoxBOD) regression problem from <span class="citation">(<a href="#ref-BHH05" role="doc-biblioref">Box et al. 2005</a>, Ch. 10)</span>, also listed as one of the test problems in the nonlinear regression section of the <a href="https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml">NIST StRD archive</a>. Biochemical Oxygen Demand is used as a measure of pollution produced by domestic or industrial wastes. In the BoxBOD data, the Biochemical Oxygen demand was determined by mixing a small portion of chemical waste with pure water and measuring the reduction in dissolved oxygen in the water for six different incubation periods (in separate bottles at a fixed temperature). Physical considerations suggest that the nonlinear relation between the number of incubation days and the BOD response can be described by an exponential model of the form:</p>
+<p><span class="math display">\[
+f(\boldsymbol{\theta}) = \theta_1 (1 - \exp(-\theta_2 x))
+\]</span>
+with <span class="math inline">\(\theta_2\)</span> the overall rate constant and <span class="math inline">\(\theta_1\)</span> the maximum or asymptotic BOD value. According to <span class="citation">(<a href="#ref-BHH05" role="doc-biblioref">Box et al. 2005</a>)</span>, the least squares objective is minimized at the parameter values <span class="math inline">\(\hat{\theta}_1 = 213.81\)</span> and <span class="math inline">\(\hat{\theta}_2 = 0.5472\)</span>, with a residual sum-of-squares value of <span class="math inline">\(S_R = 1168\)</span>. The data and the exponential model evaluated at the least squares parameter estimates are displayed in the plot below.</p>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-1-1.png" width="85%" /></p>
+<div id="nls-model-fits" class="section level3">
+<h3>NLS model fits</h3>
+<p>For the purpose of testing, the NIST StRD archive suggests several increasingly difficult sets of parameter starting values. To solve the regression problem, we choose the set of starting values <span class="math inline">\(\boldsymbol{\theta}^{(0)} = \{1, 1\}\)</span> furthest away from the least squares solution. Solving this nonlinear regression problem is particularly difficult due to the fact that the parameters live on different scales, as well as the fact that the problem is susceptible to <em>parameter evaporation</em> (i.e. parameters diverging to infinity). This also becomes apparent when trying to solve the least squares problem using the <code>nls</code> Port algorithm and the <code>minpack.lm</code> version of the Levenberg-Marquardt algorithm:</p>
+<pre class="r"><code>## data
+BoxBOD &lt;- data.frame(
+  y = c(109, 149, 149, 191, 213, 224),
+  x = c(1, 2, 3, 5, 7, 10)
+)</code></pre>
+<pre class="r"><code>## base R (port algorithm)
+nls(
+  formula = y ~ theta1 * (1 - exp(-theta2 * x)),
+  data = BoxBOD,
+  start = list(theta1 = 1, theta2 = 1),
+  trace = TRUE,
+  algorithm = &quot;port&quot;
+)
+#&gt;   0:     93191.191:  1.00000  1.00000
+#&gt;   1:     91256.158:  2.84913  2.55771
+#&gt;   2:     18920.595:  104.102  10.1516
+#&gt; Error in numericDeriv(form[[3L]], names(ind), env, dir = -1 + 2 * (internalPars &lt; : Missing value or an infinity produced when evaluating the model</code></pre>
+<pre class="r"><code>## minpack.lm (Levenberg-Marquardt algorithm)
+minpack.lm::nlsLM(
+  formula = y ~ theta1 * (1 - exp(-theta2 * x)),
+  data = BoxBOD,
+  start = list(theta1 = 1, theta2 = 1),
+  trace = TRUE
+)
+#&gt; It.    0, RSS =     186382, Par. =          1          1
+#&gt; It.    1, RSS =    40570.3, Par. =    100.854    110.949
+#&gt; It.    2, RSS =     9771.5, Par. =      172.5    110.949
+#&gt; It.    3, RSS =     9771.5, Par. =      172.5    110.949
+#&gt; Error in nlsModel(formula, mf, start, wts): singular gradient matrix at initial parameter estimates</code></pre>
+<p>Solving the regression problem with <code>gsl_nls()</code> using the GSL version of the Levenberg-Marquardt algorithm (with default numeric differentiation of the Jacobian), we set the <em>damping strategy</em> in the trust region subproblem to <code>scale = "levenberg"</code>. This generally tends to work better than the default (scale-invariant) <code>scale = "more"</code> damping strategy for problems susceptible to parameter evaporation<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>:</p>
+<pre class="r"><code>library(gslnls)  ## v1.1.1
+
+## GSL (Levenberg-Marquardt algorithm)
+(fit &lt;- gsl_nls(
+  fn = y ~ theta1 * (1 - exp(-theta2 * x)),
+  data = BoxBOD,
+  start = list(theta1 = 1, theta2 = 1),
+  algorithm = &quot;lm&quot;,
+  control = list(scale = &quot;levenberg&quot;)
+))
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ theta1 * (1 - exp(-theta2 * x))
+#&gt;    data: BoxBOD
+#&gt;   theta1   theta2 
+#&gt; 213.8094   0.5472 
+#&gt;  residual sum-of-squares: 1168
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: levenberg, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 18 
+#&gt; Achieved convergence tolerance: 1.362e-09</code></pre>
+<p>Another way to achieve convergence to the correct parameter values is to switch the solver to the Levenberg-Marquardt algorithm <strong>with</strong> geodesic acceleration correction. This extended algorithm has been shown to provide more stable convergence compared to the standard Levenberg-Marquardt
+algorithm for a large class of test problems due to the extra acceleration correction <span class="citation">(<a href="#ref-TS12" role="doc-biblioref">Transtrum and Sethna 2012</a>)</span>.</p>
+<pre class="r"><code>## GSL (Levenberg-Marquardt w/ geodesic acceleration)
+gsl_nls(
+  fn = y ~ theta1 * (1 - exp(-theta2 * x)),
+  data = BoxBOD,
+  start = list(theta1 = 1, theta2 = 1),
+  algorithm = &quot;lmaccel&quot;
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ theta1 * (1 - exp(-theta2 * x))
+#&gt;    data: BoxBOD
+#&gt;   theta1   theta2 
+#&gt; 213.8094   0.5472 
+#&gt;  residual sum-of-squares: 1168
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt+accel, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 26 
+#&gt; Achieved convergence tolerance: 2.457e-09</code></pre>
+<p>The output printed by <code>gsl_nls()</code> is analogous to that of <code>nls()</code> (or <code>minpack.lm::nlsLM()</code>) and all the usual methods for objects of class <code>"nls"</code> can be applied to the fitted model object:</p>
+<pre class="r"><code>## model summary
+summary(fit)
+#&gt; 
+#&gt; Formula: y ~ theta1 * (1 - exp(-theta2 * x))
+#&gt; 
+#&gt; Parameters:
+#&gt;        Estimate Std. Error t value Pr(&gt;|t|)    
+#&gt; theta1 213.8094    12.3545  17.306 6.54e-05 ***
+#&gt; theta2   0.5472     0.1046   5.234  0.00637 ** 
+#&gt; ---
+#&gt; Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+#&gt; 
+#&gt; Residual standard error: 17.09 on 4 degrees of freedom
+#&gt; 
+#&gt; Number of iterations to convergence: 18 
+#&gt; Achieved convergence tolerance: 1.362e-09
+
+## asymptotic confidence intervals
+confint(fit, method = &quot;asymptotic&quot;, level = 0.95)
+#&gt;         2.5 %      97.5 %
+#&gt; 1 179.5077734 248.1110349
+#&gt; 2   0.2569326   0.8375425</code></pre>
+<p>The <code>predict</code> method extends the existing <code>predict.nls</code> method by allowing for calculation of asymptotic confidence and prediction (tolerance) intervals in addition to prediction of the expected response:</p>
+<pre class="r"><code>## asymptotic prediction intervals
+predict(fit, interval = &quot;prediction&quot;, level = 0.95)
+#&gt;            fit       lwr      upr
+#&gt; [1,]  90.11087  35.41443 144.8073
+#&gt; [2,] 142.24413  86.43974 198.0485
+#&gt; [3,] 172.40562 118.92302 225.8882
+#&gt; [4,] 199.95092 147.58019 252.3217
+#&gt; [5,] 209.17076 154.36050 263.9810
+#&gt; [6,] 212.91114 155.51375 270.3085</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-9-1.png" width="85%" /></p>
+</div>
+</div>
+<div id="parameter-constraints" class="section level2">
+<h2>Parameter constraints</h2>
+<p>The GSL nonlinear least squares routines do <em>not</em> allow bounds constraints to be imposed on the parameters. This is in contrast to other routines available in R, such as those provided by <code>minpack.lm</code>. For the purpose of pure optimization, imposing lower and upper bounds constraints on the parameters is common practice, but statisticians have generally been wary of imposing hard parameter constraints due to complications in evaluating interval estimates for the parameters or functions thereof (<span class="citation"><a href="#ref-N22" role="doc-biblioref">Nash</a> (<a href="#ref-N22" role="doc-biblioref">2022</a>)</span>). In particular, imposing parameter constraints in solving the BoxBOD test problem with the <code>minpack.lm</code> version of the Levenberg-Marquardt algorithm, the model parameters simply run away to the boundaries, which does not improve convergence in any way:</p>
+<pre class="r"><code>## Levenberg-Marquardt with parameter constraints
+minpack.lm::nlsLM(
+  formula = y ~ theta1 * (1 - exp(-theta2 * x)),
+  data = BoxBOD,
+  start = list(theta1 = 1, theta2 = 1),
+  lower = c(theta1 = 0, theta2 = 0),
+  upper = c(theta1 = 500, theta2 = 5)
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ theta1 * (1 - exp(-theta2 * x))
+#&gt;    data: BoxBOD
+#&gt; theta1 theta2 
+#&gt;  172.8    5.0 
+#&gt;  residual sum-of-squares: 9624
+#&gt; 
+#&gt; Number of iterations to convergence: 3 
+#&gt; Achieved convergence tolerance: 1.49e-08</code></pre>
+<p>If there are known physical constraints for the parameters or if the model function cannot be evaluated in certain regions of the parameter space, it often makes sense to reparameterize the model, such that the model parameters are unconstrained. If prior information is available on the target parameter values, update the starting values or include some type of parameter penalization (i.e. a weighting function). This is preferable to imposing hard parameter constraints which essentially assign uniform weights inside the parameter bounds and infinite weights elsewhere<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>.</p>
+<div id="model-reparameterization" class="section level3">
+<h3>Model reparameterization</h3>
+<p>Below, we reparameterize the BoxBOD regression model by substituting <span class="math inline">\(\theta_1 = \exp(\eta_1)\)</span> and <span class="math inline">\(\theta_2 = \exp(\eta_2)\)</span> in the exponential model, such that <span class="math inline">\(\eta_1, \eta_2\)</span> are unconstrained and <span class="math inline">\(\theta_1, \theta_2\)</span> are positive. The model is refitted with the <code>gslnls</code> version of the Levenberg-Marquardt algorithm using the transformed starting values <span class="math inline">\(\boldsymbol{\eta}^{(0)} = \{0, 0\}\)</span>:</p>
+<pre class="r"><code>## GSL (Levenberg-Marquardt algorithm)
+(refit &lt;- gsl_nls( 
+  fn = y ~ exp(eta1) * (1 - exp(-exp(eta2) * x)),
+  data = BoxBOD,
+  start = list(eta1 = 0, eta2 = 0),
+  control = list(scale = &quot;levenberg&quot;)
+))
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ exp(eta1) * (1 - exp(-exp(eta2) * x))
+#&gt;    data: BoxBOD
+#&gt;    eta1    eta2 
+#&gt;  5.3651 -0.6029 
+#&gt;  residual sum-of-squares: 1168
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: levenberg, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 11 
+#&gt; Achieved convergence tolerance: 2.959e-08</code></pre>
+<p><strong>Remark</strong>: The new <code>confintd</code> method, based on an application of the <a href="https://en.wikipedia.org/wiki/Delta_method">delta method</a>, can be used to evaluate asymptotic confidence intervals for the parameters in the original model:</p>
+<pre class="r"><code>## delta method confidence intervals
+confintd(refit, expr = c(&quot;exp(eta1)&quot;, &quot;exp(eta2)&quot;), level = 0.95)
+#&gt;                   fit         lwr         upr
+#&gt; exp(eta1) 213.8093867 179.5077650 248.1110085
+#&gt; exp(eta2)   0.5472377   0.2569327   0.8375428</code></pre>
+</div>
+</div>
+<div id="large-nls-problems" class="section level2">
+<h2>Large NLS problems</h2>
+<p>As an example of a large nonlinear least squares problem, we reproduce the <strong>Penalty function I</strong> test problem from <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>, pg. 26)</span> among other sources<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>. For a given number of parameters <span class="math inline">\(p\)</span>, the <span class="math inline">\(n = p + 1\)</span> residuals forming the least squares objective are defined as:</p>
+<p><span class="math display">\[
+\left\{
+\begin{aligned}
+g_i &amp; \ = \sqrt{\alpha}(\theta_i + 1), \quad i = 1,\ldots,p \\
+g_{p + 1} &amp; \ = \Vert \boldsymbol{\theta} \Vert^2  - \frac{1}{4}
+\end{aligned}
+\right.
+\]</span></p>
+<p>with fixed constant <span class="math inline">\(\alpha = 10^{-5}\)</span> and unknown parameters <span class="math inline">\(\boldsymbol{\theta} = (\theta_1,\ldots, \theta_p)&#39;\)</span>. Note that the residual <span class="math inline">\(g_{p + 1}\)</span> adds an <span class="math inline">\(L_2\)</span>-regularization constraint on the parameter vector thereby making the system nonlinear.</p>
+<p>For large problems, it is generally discouraged to rely on numeric differentiation to evaluate the Jacobian matrix. Instead it is often better to obtain the Jacobian either analytically, or through symbolic or automatic differentiation. In this example, the <span class="math inline">\((p + 1) \times p\)</span>-dimensional Jacobian matrix is straightforward to derive analytically:</p>
+<p><span class="math display">\[
+\boldsymbol{J}(\boldsymbol{\theta}) \ = \
+\left[ \begin{matrix}
+\frac{\partial g_1}{\partial \theta_1} &amp; \ldots &amp; \frac{\partial g_1}{\partial \theta_p} \\
+\vdots &amp; \ddots &amp; \vdots \\
+\frac{\partial g_{p+1}}{\partial \theta_1} &amp; \ldots &amp; \frac{\partial g_{p+1}}{\partial \theta_p}
+\end{matrix} \right] \ =
+\left[ \begin{matrix}
+\sqrt{\alpha} \boldsymbol{I}_{p \times p} \\
+2 \boldsymbol{\theta}&#39;
+\end{matrix} \right]
+\]</span></p>
+<p>where <span class="math inline">\(\boldsymbol{I}_{p \times p}\)</span> denotes the <span class="math inline">\((p \times p)\)</span> identity matrix.</p>
+<p>The model residuals and Jacobian matrix can be written as a function of the parameter vector <span class="math inline">\(\boldsymbol{\theta}\)</span> as follows:</p>
+<pre class="r"><code>## model definition
+g &lt;- function(theta) {
+  structure(
+    c(sqrt(1e-5) * (theta - 1), sum(theta^2) - 0.25),   ## residuals
+    gradient = rbind(diag(sqrt(1e-5), nrow = length(theta)), 2 * t(theta))   ## Jacobian
+  )
+}</code></pre>
+<p>Here, the Jacobian is returned in the <code>"gradient"</code> attribute of the evaluated residual vector (as in a <code>selfStart</code> model) from which it is detected automatically by <code>gsl_nls()</code> or <code>gsl_nls_large()</code>. Instead, a function returning the evaluated Jacobian can also be passed explicitly to the <code>jac</code> argument.</p>
+<p>First, we minimize the least squares objective with a call to <code>gsl_nls()</code> by passing the nonlinear model as a <code>function</code> (instead of a <code>formula</code>) and setting the response vector <code>y</code> to a vector of zeros<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a>. The number of parameters is set to <span class="math inline">\(p = 500\)</span> and the starting values <span class="math inline">\(\theta^{(0)}_i = i\)</span> are taken from <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>)</span>.</p>
+<pre class="r"><code>## number of parameters
+p &lt;- 500
+
+## standard Levenberg-Marquardt
+system.time({
+  small_lm &lt;- gsl_nls(
+    fn = g,
+    y = rep(0, p + 1),
+    start = 1:p,
+    control = list(maxiter = 500)
+  )
+})
+#&gt;    user  system elapsed 
+#&gt;  27.031   0.076  27.109
+
+cat(&quot;Residual sum-of-squares:&quot;, deviance(small_lm), &quot;\n&quot;)
+#&gt; Residual sum-of-squares: 0.00477904</code></pre>
+<p>Second, we fit the same model, but with a call to <code>gsl_nls_large()</code> using the iterative Steihaug-Toint Conjugate Gradient algorithm. This algorithm avoids the need for computationally expensive factorization of the normal equations matrix <span class="math inline">\(\boldsymbol{J}(\boldsymbol{\theta})&#39;\boldsymbol{J}(\boldsymbol{\theta})\)</span>, thereby drastically reducing the runtime for this example:</p>
+<pre class="r"><code>## large-scale Steihaug-Toint 
+system.time({
+  large_cgst &lt;- gsl_nls_large(
+    fn = g,
+    y = rep(0, p + 1),
+    start = 1:p,
+    algorithm = &quot;cgst&quot;,
+    control = list(maxiter = 500)
+  )
+})
+#&gt;    user  system elapsed 
+#&gt;   0.939   0.000   0.940
+
+cat(&quot;Residual sum-of-squares:&quot;, deviance(large_cgst), &quot;\n&quot;)
+#&gt; Residual sum-of-squares: 0.004778862</code></pre>
+<div id="sparse-jacobian-matrix" class="section level3">
+<h3>Sparse Jacobian matrix</h3>
+<p>The Jacobian matrix <span class="math inline">\(\boldsymbol{J}(\boldsymbol{\theta})\)</span> in the current problem is very <em>sparse</em> in the sense that it contains only a small number of nonzero entries. The <code>gsl_nls_large()</code> function also accepts the evaluated Jacobian as a sparse matrix of <a href="https://cran.r-project.org/web/packages/Matrix/Matrix.pdf">Matrix</a>-class <code>"dgCMatrix"</code>, <code>"dgRMatrix"</code> or <code>"dgTMatrix"</code>. To illustrate, we can update the model function to return the sparse Jacobian as a <code>"dgCMatrix"</code> instead of a dense numeric matrix:</p>
+<pre class="r"><code>## sparse model definition
+gsp &lt;- function(theta) {
+  structure(
+    c(sqrt(1e-5) * (theta - 1), sum(theta^2) - 0.25),
+    gradient = rbind(Matrix::Diagonal(x = sqrt(1e-5), n = length(theta)), 2 * t(theta))
+  )
+}</code></pre>
+<p>Comparing the performance of the Levenberg-Marquardt and Steihaug-Toint algorithms with respect to the initial dense Jacobian definition, besides a slight improvement in runtimes, the required amount of memory is significantly smaller for the model functions returning a sparse Jacobian matrix than the model functions returning a dense Jacobian matrix:</p>
+<pre class="r"><code>## computation times and allocated memory
+bench::mark(
+  &quot;Dense LM&quot; = gsl_nls_large(fn = g, y = rep(0, p + 1), start = 1:p, algorithm = &quot;lm&quot;, control = list(maxiter = 500)),
+  &quot;Dense CGST&quot; = gsl_nls_large(fn = g, y = rep(0, p + 1), start = 1:p, algorithm = &quot;cgst&quot;),
+  &quot;Sparse LM&quot; = gsl_nls_large(fn = gsp, y = rep(0, p + 1), start = 1:p, algorithm = &quot;lm&quot;, control = list(maxiter = 500)),
+  &quot;Sparse CGST&quot; = gsl_nls_large(fn = gsp, y = rep(0, p + 1), start = 1:p, algorithm = &quot;cgst&quot;),
+  check = FALSE,
+  min_iterations = 5
+)
+#&gt; # A tibble: 4 × 6
+#&gt;   expression       min   median `itr/sec` mem_alloc `gc/sec`
+#&gt;   &lt;bch:expr&gt;  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
+#&gt; 1 Dense LM       4.14s    4.29s     0.228    1.32GB    6.74 
+#&gt; 2 Dense CGST   878.9ms 904.28ms     1.07   864.49MB   20.1  
+#&gt; 3 Sparse LM      3.75s    3.83s     0.259   29.46MB    0.518
+#&gt; 4 Sparse CGST    352ms 356.14ms     2.81    21.22MB    3.37</code></pre>
+</div>
+</div>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="ref-BHH05" class="csl-entry">
+Box, G. E. P., W. G. Hunter, J. S. Hunter, et al. 2005. <em>Statistics for Experimenters: Design, Innovation, and Discovery</em>. 2nd ed. Hoboken, New Jersey: Wiley.
+</div>
+<div id="ref-G09" class="csl-entry">
+Galassi, M., J. Davies, J. Theiler, B. Gough, G. Jungman, M. Booth, and F. Rossi. 2009. <em>GNU Scientific Library Reference Manual</em>. 3rd ed. Network Theory Limited. <a href="https://www.gnu.org/software/gsl/">https://www.gnu.org/software/gsl/</a>.
+</div>
+<div id="ref-M81" class="csl-entry">
+Moré, J. J., B. S. Garbow, and K. E. Hillstrom. 1981. <span>“Testing Unconstrained Optimization Software.”</span> <em>ACM Transactions on Mathematical Software (TOMS)</em> 7 (1): 17–41.
+</div>
+<div id="ref-N77" class="csl-entry">
+Nash, J. C. 1977. <span>“Minimizing a Non-Linear Sum of Squares Function on a Small Computer.”</span> <em>IMA Journal of Applied Mathematics</em> 19 (2): 231–37.
+</div>
+<div id="ref-N22" class="csl-entry">
+———. 2022. <span>“Function Minimization and Nonlinear Least Squares in <span>R</span>.”</span> <em>Wiley Interdisciplinary Reviews: Computational Statistics</em>. <a href="https://doi.org/10.1002/wics.1580">https://doi.org/10.1002/wics.1580</a>.
+</div>
+<div id="ref-TS12" class="csl-entry">
+Transtrum, M. K., and J. P. Sethna. 2012. <span>“Improvements to the <span>L</span>evenberg-<span>M</span>arquardt Algorithm for Nonlinear Least-Squares Minimization.”</span> <em>arXiv Preprint 1201.5885</em>. <a href="https://doi.org/10.48550/arXiv.1201.5885">https://doi.org/10.48550/arXiv.1201.5885</a>.
+</div>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#c.gsl_multilarge_nlinear_scale.gsl_multilarge_nlinear_scale_levenberg" class="uri">https://www.gnu.org/software/gsl/doc/html/nls.html#c.gsl_multilarge_nlinear_scale.gsl_multilarge_nlinear_scale_levenberg</a>.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>In a Bayesian context, the use of uniform priors is generally discouraged as well.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>The same problem is also used as an example in the <a href="https://www.gnu.org/software/gsl/doc/html/nls.html#large-nonlinear-least-squares-example">GSL documentation</a>.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>Alternatively <code>minpack.lm::nls.lm()</code> also accepts a <code>function</code> (instead of a <code>formula</code>) returning the vector of residuals, but in this example reaches the maximum allowed number of iterations (<code>maxiter = 1024</code>) without convergence.<a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
