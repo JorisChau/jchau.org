@@ -47,9 +47,9 @@ In the context of regression, this problem is usually formulated as:</p>
 <p>Most standard nonlinear least squares solvers, such as the <a href="https://en.wikipedia.org/wiki/Gauss%E2%80%93Newton_algorithm">Gauss-Newton method</a> or the <a href="https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm">Levenberg-Marquardt algorithm</a>, attempt to find a <em>local</em> minimum of the objective function by making iterative steps in the direction of the solution informed by the gradient of a first- or second-order Taylor approximation of the nonlinear objective function.</p>
 <p>The default function to solve nonlinear least squares problems in R, <code>nls()</code>, includes the following gradient-based solvers:</p>
 <ul>
-<li><code>"default"</code>, the Gauss-Newton method</li>
-<li><code>"plinear"</code>, the Golub-Pereyra algorithm for partially linear least-squares</li>
-<li><code>"port"</code>, the <code>nls2sol</code> algorithm from the <a href="https://www.netlib.org/port/">Port</a> library with parameter bounds constraints</li>
+<li><code>"default"</code>, the Gauss-Newton method;</li>
+<li><code>"plinear"</code>, the Golub-Pereyra algorithm for partially linear least-squares problems;</li>
+<li><code>"port"</code>, the <code>nls2sol</code> algorithm from the <a href="https://www.netlib.org/port/">Port</a> library with parameter bounds constraints.</li>
 </ul>
 <p>External R-packages aimed at nonlinear least squares optimization include the popular <code>minpack.lm</code> package or John Nash’s <code>nlsr</code> package. The <code>minpack.lm</code> package provides an interface to a modified Levenberg-Marquardt algorithm from the MINPACK library. The <code>nlsr</code> package implements a variant of the Marquardt algorithm (<span class="citation"><a href="#ref-N77" role="doc-biblioref">Nash</a> (<a href="#ref-N77" role="doc-biblioref">1977</a>)</span>) with a strong emphasis on symbolic differentiation of the nonlinear model function. A comprehensive overview of R-packages to solve nonlinear least squares problems can be found in the Least-Squares Problems section of the <a href="https://cran.r-project.org/web/views/Optimization.html">CRAN Optimization task view</a>.</p>
 <div id="new-gsl-nonlinear-least-squares-solvers" class="section level3">
@@ -70,7 +70,7 @@ using the trust region methods implemented by the <code>gsl_multifit_nlinear</co
 </div>
 <div id="howwhen-to-use-gslnls" class="section level1">
 <h1>How/when to use {gslnls}</h1>
-<p>The function <code>gsl_nls()</code> solves small to moderate sized nonlinear least-squares problems using either numeric or symbolic differentiation of the Jacobian matrix. For (very) large problems, where factoring the full Jacobian matrix becomes prohibitively expensive, the <code>gsl_nls_large()</code> function can be used to minimize the least squares objective. The <code>gsl_nls_large()</code> function is also appropriate for systems with sparse structure in the Jacobian matrix allowing to reduce required memory and further speed up computations. Both functions use the same interface as R’s default <code>nls()</code> function similar to <code>minpack.lm::nlsLM()</code> and the returned fit objects inherit from the class <code>"nls"</code>. For this reason, all generic functions available for <code>"nls"</code>-objects, such as <code>summary()</code>, <code>confint()</code>, <code>predict()</code>, etc., are also applicable to objects returned by <code>gsl_nls()</code> or <code>gsl_nls_large()</code>.</p>
+<p>The function <code>gsl_nls()</code> solves small to moderate sized nonlinear least-squares problems using either numeric or symbolic differentiation of the Jacobian matrix. For (very) large problems, where factoring the full Jacobian matrix becomes prohibitively expensive, the <code>gsl_nls_large()</code> function can be used to minimize the least squares objective. The <code>gsl_nls_large()</code> function is also appropriate for systems with sparse structure in the Jacobian matrix allowing to reduce memory usage and further speed up computations. Both functions use the same interface as R’s default <code>nls()</code> function, similar to <code>minpack.lm::nlsLM()</code>, and the returned fit objects inherit from the class <code>"nls"</code>. For this reason, all generic functions available for <code>"nls"</code>-objects, such as <code>summary()</code>, <code>confint()</code>, <code>predict()</code>, etc., are also applicable to objects returned by <code>gsl_nls()</code> or <code>gsl_nls_large()</code>.</p>
 <div id="boxbod-regression-problem" class="section level2">
 <h2>BoxBOD regression problem</h2>
 <p>As a demonstrating example, consider the Biochemical Oxygen Demand (BoxBOD) regression problem from <span class="citation">(<a href="#ref-BHH05" role="doc-biblioref">Box et al. 2005</a>, Ch. 10)</span>, also listed as one of the test problems in the nonlinear regression section of the <a href="https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml">NIST StRD archive</a>. Biochemical Oxygen Demand is used as a measure of pollution produced by domestic or industrial wastes. In the BoxBOD data, the Biochemical Oxygen demand was determined by mixing a small portion of chemical waste with pure water and measuring the reduction in dissolved oxygen in the water for six different incubation periods (in separate bottles at a fixed temperature). Physical considerations suggest that the nonlinear relation between the number of incubation days and the BOD response can be described by an exponential model of the form:</p>
@@ -111,7 +111,7 @@ minpack.lm::nlsLM(
 #&gt; It.    2, RSS =     9771.5, Par. =      172.5    110.949
 #&gt; It.    3, RSS =     9771.5, Par. =      172.5    110.949
 #&gt; Error in nlsModel(formula, mf, start, wts): singular gradient matrix at initial parameter estimates</code></pre>
-<p>Solving the regression problem with <code>gsl_nls()</code> using the GSL version of the Levenberg-Marquardt algorithm (with default numeric differentiation of the Jacobian), we set the <em>damping strategy</em> in the trust region subproblem to <code>scale = "levenberg"</code>. This generally tends to work better than the default (scale-invariant) <code>scale = "more"</code> damping strategy for problems susceptible to parameter evaporation<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>:</p>
+<p>Solving the regression problem with <code>gsl_nls()</code> using the GSL version of the Levenberg-Marquardt algorithm (with default numeric differentiation of the Jacobian), we set the <em>damping strategy</em> in the trust region subproblem to <code>scale = "levenberg"</code>. This generally tends to work better than the default (scale-invariant) strategy <code>scale = "more"</code> for problems susceptible to parameter evaporation<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>:</p>
 <pre class="r"><code>library(gslnls)  ## v1.1.1
 
 ## GSL (Levenberg-Marquardt algorithm)
@@ -133,7 +133,7 @@ minpack.lm::nlsLM(
 #&gt; 
 #&gt; Number of iterations to convergence: 18 
 #&gt; Achieved convergence tolerance: 1.362e-09</code></pre>
-<p>Another way to achieve convergence to the correct parameter values is to switch the solver to the Levenberg-Marquardt algorithm <strong>with</strong> geodesic acceleration correction. This extended algorithm has been shown to provide more stable convergence compared to the standard Levenberg-Marquardt
+<p>Another way to achieve convergence to the correct parameter values is to switch the solver to the Levenberg-Marquardt algorithm <em>with</em> geodesic acceleration correction. This extended algorithm has been shown to provide more stable convergence compared to the standard Levenberg-Marquardt
 algorithm for a large class of test problems due to the extra acceleration correction <span class="citation">(<a href="#ref-TS12" role="doc-biblioref">Transtrum and Sethna 2012</a>)</span>.</p>
 <pre class="r"><code>## GSL (Levenberg-Marquardt w/ geodesic acceleration)
 gsl_nls(
@@ -241,7 +241,7 @@ confintd(refit, expr = c(&quot;exp(eta1)&quot;, &quot;exp(eta2)&quot;), level = 
 </div>
 <div id="large-nls-problems" class="section level2">
 <h2>Large NLS problems</h2>
-<p>As an example of a large nonlinear least squares problem, we reproduce the <strong>Penalty function I</strong> test problem from <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>, pg. 26)</span> among other sources<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>. For a given number of parameters <span class="math inline">\(p\)</span>, the <span class="math inline">\(n = p + 1\)</span> residuals forming the least squares objective are defined as:</p>
+<p>As an example of a large nonlinear least squares problem, we reproduce the <strong>Penalty function I</strong> test problem from <span class="citation">(<a href="#ref-M81" role="doc-biblioref">Moré, Garbow, and Hillstrom 1981</a>, pg. 26)</span> among others<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>. For a given number of parameters <span class="math inline">\(p\)</span>, the <span class="math inline">\(n = p + 1\)</span> residuals forming the least squares objective are defined as:</p>
 <p><span class="math display">\[
 \left\{
 \begin{aligned}
@@ -288,7 +288,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;  27.031   0.076  27.109
+#&gt;  26.189   0.061  26.251
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(small_lm), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.00477904</code></pre>
@@ -304,7 +304,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;   0.939   0.000   0.940
+#&gt;   0.974   0.000   0.973
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(large_cgst), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.004778862</code></pre>
@@ -328,13 +328,14 @@ bench::mark(
   check = FALSE,
   min_iterations = 5
 )
+#&gt; Warning: Some expressions had a GC in every iteration; so filtering is disabled.
 #&gt; # A tibble: 4 × 6
 #&gt;   expression       min   median `itr/sec` mem_alloc `gc/sec`
 #&gt;   &lt;bch:expr&gt;  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
-#&gt; 1 Dense LM       4.14s    4.29s     0.228    1.32GB    6.74 
-#&gt; 2 Dense CGST   878.9ms 904.28ms     1.07   864.49MB   20.1  
-#&gt; 3 Sparse LM      3.75s    3.83s     0.259   29.46MB    0.518
-#&gt; 4 Sparse CGST    352ms 356.14ms     2.81    21.22MB    3.37</code></pre>
+#&gt; 1 Dense LM       4.34s    4.43s     0.226    1.32GB    6.70 
+#&gt; 2 Dense CGST   892.1ms  919.2ms     1.05   864.49MB   19.7  
+#&gt; 3 Sparse LM      3.99s    3.99s     0.250   29.46MB    0.500
+#&gt; 4 Sparse CGST  366.6ms 370.63ms     2.70    21.22MB    3.24</code></pre>
 </div>
 </div>
 </div>

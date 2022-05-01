@@ -30,23 +30,7 @@ library(knitr)
 library(data.table)
 library(ggplot2)
 
-opts_chunk$set(collapse = TRUE, error = TRUE, warning = FALSE, message = FALSE, eval = TRUE, comment = "#>", out.width = "100%")
-
-# save the built-in output hook
-hook_output <- knit_hooks$get("output")
-
-# set a new output hook to truncate text output
-knit_hooks$set(output = function(x, options) {
-  if (!is.null(n <- options$out.lines)) {
-    x <- xfun::split_lines(x)
-    if (length(x) > n) {
-      # truncate the output
-      x <- c(head(x, n), "....\n")
-    }
-    x <- paste(x, collapse = "\n")
-  }
-  hook_output(x, options)
-})
+opts_chunk$set(collapse = TRUE, error = TRUE, eval = TRUE, comment = "#>")
 ```
 
 # Introduction
@@ -73,9 +57,9 @@ Most standard nonlinear least squares solvers, such as the [Gauss-Newton method]
 
 The default function to solve nonlinear least squares problems in R, `nls()`, includes the following gradient-based solvers:
 
-* `"default"`, the Gauss-Newton method
-* `"plinear"`, the Golub-Pereyra algorithm for partially linear least-squares
-* `"port"`, the `nls2sol` algorithm from the [Port](https://www.netlib.org/port/) library with parameter bounds constraints
+* `"default"`, the Gauss-Newton method;
+* `"plinear"`, the Golub-Pereyra algorithm for partially linear least-squares problems;
+* `"port"`, the `nls2sol` algorithm from the [Port](https://www.netlib.org/port/) library with parameter bounds constraints.
 
 External R-packages aimed at nonlinear least squares optimization include the popular `minpack.lm` package or John Nash's `nlsr` package. The `minpack.lm` package provides an interface to a modified Levenberg-Marquardt algorithm from the MINPACK library. The `nlsr` package implements a variant of the Marquardt algorithm (@N77) with a strong emphasis on symbolic differentiation of the nonlinear model function. A comprehensive overview of R-packages to solve nonlinear least squares problems can be found in the Least-Squares Problems section of the [CRAN Optimization task view](https://cran.r-project.org/web/views/Optimization.html).
 
@@ -95,7 +79,7 @@ The following trust region methods to solve nonlinear least-squares problems are
 
 # How/when to use {gslnls}
 
-The function `gsl_nls()` solves small to moderate sized nonlinear least-squares problems using either numeric or symbolic differentiation of the Jacobian matrix. For (very) large problems, where factoring the full Jacobian matrix becomes prohibitively expensive, the `gsl_nls_large()` function can be used to minimize the least squares objective. The `gsl_nls_large()` function is also appropriate for systems with sparse structure in the Jacobian matrix allowing to reduce required memory and further speed up computations. Both functions use the same interface as R's default `nls()` function similar to `minpack.lm::nlsLM()` and the returned fit objects inherit from the class `"nls"`. For this reason, all generic functions available for `"nls"`-objects, such as `summary()`, `confint()`, `predict()`, etc., are also applicable to objects returned by `gsl_nls()` or `gsl_nls_large()`.
+The function `gsl_nls()` solves small to moderate sized nonlinear least-squares problems using either numeric or symbolic differentiation of the Jacobian matrix. For (very) large problems, where factoring the full Jacobian matrix becomes prohibitively expensive, the `gsl_nls_large()` function can be used to minimize the least squares objective. The `gsl_nls_large()` function is also appropriate for systems with sparse structure in the Jacobian matrix allowing to reduce memory usage and further speed up computations. Both functions use the same interface as R's default `nls()` function, similar to `minpack.lm::nlsLM()`, and the returned fit objects inherit from the class `"nls"`. For this reason, all generic functions available for `"nls"`-objects, such as `summary()`, `confint()`, `predict()`, etc., are also applicable to objects returned by `gsl_nls()` or `gsl_nls_large()`.
 
 ## BoxBOD regression problem
 
@@ -159,7 +143,7 @@ minpack.lm::nlsLM(
 )
 ```
 
-Solving the regression problem with `gsl_nls()` using the GSL version of the Levenberg-Marquardt algorithm (with default numeric differentiation of the Jacobian), we set the *damping strategy* in the trust region subproblem to `scale = "levenberg"`. This generally tends to work better than the default (scale-invariant) `scale = "more"` damping strategy for problems susceptible to parameter evaporation[^1]: 
+Solving the regression problem with `gsl_nls()` using the GSL version of the Levenberg-Marquardt algorithm (with default numeric differentiation of the Jacobian), we set the *damping strategy* in the trust region subproblem to `scale = "levenberg"`. This generally tends to work better than the default (scale-invariant) strategy `scale = "more"` for problems susceptible to parameter evaporation[^1]: 
 
 ```{r}
 library(gslnls)  ## v1.1.1
@@ -174,7 +158,7 @@ library(gslnls)  ## v1.1.1
 ))
 ```
 
-Another way to achieve convergence to the correct parameter values is to switch the solver to the Levenberg-Marquardt algorithm **with** geodesic acceleration correction. This extended algorithm has been shown to provide more stable convergence compared to the standard Levenberg-Marquardt
+Another way to achieve convergence to the correct parameter values is to switch the solver to the Levenberg-Marquardt algorithm *with* geodesic acceleration correction. This extended algorithm has been shown to provide more stable convergence compared to the standard Levenberg-Marquardt
 algorithm for a large class of test problems due to the extra acceleration correction [@TS12].
 
 ```{r}
@@ -256,10 +240,9 @@ Below, we reparameterize the BoxBOD regression model by substituting $\theta_1 =
 confintd(refit, expr = c("exp(eta1)", "exp(eta2)"), level = 0.95)
 ```
 
-
 ## Large NLS problems
 
-As an example of a large nonlinear least squares problem, we reproduce the **Penalty function I** test problem from [@M81, pg. 26] among other sources[^3]. For a given number of parameters $p$, the $n = p + 1$ residuals forming the least squares objective are defined as:
+As an example of a large nonlinear least squares problem, we reproduce the **Penalty function I** test problem from [@M81, pg. 26] among others[^3]. For a given number of parameters $p$, the $n = p + 1$ residuals forming the least squares objective are defined as:
 
 $$
 \left\{
