@@ -35,8 +35,6 @@ opts_chunk$set(collapse = TRUE, error = TRUE, eval = TRUE, comment = "#>")
 
 # Introduction
 
-## Nonlinear least squares in R
-
 Solving a nonlinear least squares problem consists of minimizing a least squares objective function made up of residuals $g_1(\boldsymbol{\theta}), \ldots, g_n(\boldsymbol{\theta})$ that are **nonlinear** functions of the parameters of interest $\boldsymbol{\theta} = (\theta_1,\ldots, \theta_p)'$:
 
 $$
@@ -53,6 +51,8 @@ $$
 
 where $\boldsymbol{y}$ is the vector of data observations and $f(\boldsymbol{\theta})$ is a nonlinear model function in terms of the parameters $\theta_1,\ldots,\theta_p$.
 
+## Common solvers used in R
+
 Most standard nonlinear least squares solvers, such as the [Gauss-Newton method](https://en.wikipedia.org/wiki/Gauss%E2%80%93Newton_algorithm) or the [Levenberg-Marquardt algorithm](https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm), attempt to find a *local* minimum of the objective function by making iterative steps in the direction of the solution informed by the gradient of a first- or second-order Taylor approximation of the nonlinear objective function. 
 
 The default function to solve nonlinear least squares problems in R, `nls()`, includes the following gradient-based solvers:
@@ -63,10 +63,10 @@ The default function to solve nonlinear least squares problems in R, `nls()`, in
 
 External R-packages aimed at nonlinear least squares optimization include the popular `minpack.lm` package or John Nash's `nlsr` package. The `minpack.lm` package provides an interface to a modified Levenberg-Marquardt algorithm from the MINPACK library. The `nlsr` package implements a variant of the Marquardt algorithm (@N77) with a strong emphasis on symbolic differentiation of the nonlinear model function. A comprehensive overview of R-packages to solve nonlinear least squares problems can be found in the Least-Squares Problems section of the [CRAN Optimization task view](https://cran.r-project.org/web/views/Optimization.html).
 
-### New GSL nonlinear least squares solvers
+## New GSL nonlinear least squares solvers
 
 The new [`gslnls`](https://CRAN.R-project.org/package=gslnls)-package augments the existing suite of nonlinear least squares solvers available in R by providing R bindings to nonlinear least squares optimization with the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/)
-using the trust region methods implemented by the `gsl_multifit_nlinear` and `gsl_multilarge_nlinear` modules. These modules where added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in @G09.
+using the trust region methods implemented by the `gsl_multifit_nlinear` and `gsl_multilarge_nlinear` modules. These modules were added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in @G09.
 
 The following trust region methods to solve nonlinear least-squares problems are available in the `gsnls`-package:
 

@@ -30,8 +30,6 @@ bibliography: references.bib
 
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<div id="nonlinear-least-squares-in-r" class="section level2">
-<h2>Nonlinear least squares in R</h2>
 <p>Solving a nonlinear least squares problem consists of minimizing a least squares objective function made up of residuals <span class="math inline">\(g_1(\boldsymbol{\theta}), \ldots, g_n(\boldsymbol{\theta})\)</span> that are <strong>nonlinear</strong> functions of the parameters of interest <span class="math inline">\(\boldsymbol{\theta} = (\theta_1,\ldots, \theta_p)&#39;\)</span>:</p>
 <p><span class="math display">\[
 \boldsymbol{\theta}^* \ = \ \arg \min_{\boldsymbol{\theta}} \frac{1}{2} \Vert g(\boldsymbol{\theta}) \Vert^2 
@@ -44,6 +42,8 @@ In the context of regression, this problem is usually formulated as:</p>
 \end{aligned}
 \]</span></p>
 <p>where <span class="math inline">\(\boldsymbol{y}\)</span> is the vector of data observations and <span class="math inline">\(f(\boldsymbol{\theta})\)</span> is a nonlinear model function in terms of the parameters <span class="math inline">\(\theta_1,\ldots,\theta_p\)</span>.</p>
+<div id="common-solvers-used-in-r" class="section level2">
+<h2>Common solvers used in R</h2>
 <p>Most standard nonlinear least squares solvers, such as the <a href="https://en.wikipedia.org/wiki/Gauss%E2%80%93Newton_algorithm">Gauss-Newton method</a> or the <a href="https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm">Levenberg-Marquardt algorithm</a>, attempt to find a <em>local</em> minimum of the objective function by making iterative steps in the direction of the solution informed by the gradient of a first- or second-order Taylor approximation of the nonlinear objective function.</p>
 <p>The default function to solve nonlinear least squares problems in R, <code>nls()</code>, includes the following gradient-based solvers:</p>
 <ul>
@@ -52,10 +52,11 @@ In the context of regression, this problem is usually formulated as:</p>
 <li><code>"port"</code>, the <code>nls2sol</code> algorithm from the <a href="https://www.netlib.org/port/">Port</a> library with parameter bounds constraints.</li>
 </ul>
 <p>External R-packages aimed at nonlinear least squares optimization include the popular <code>minpack.lm</code> package or John Nash’s <code>nlsr</code> package. The <code>minpack.lm</code> package provides an interface to a modified Levenberg-Marquardt algorithm from the MINPACK library. The <code>nlsr</code> package implements a variant of the Marquardt algorithm (<span class="citation"><a href="#ref-N77" role="doc-biblioref">Nash</a> (<a href="#ref-N77" role="doc-biblioref">1977</a>)</span>) with a strong emphasis on symbolic differentiation of the nonlinear model function. A comprehensive overview of R-packages to solve nonlinear least squares problems can be found in the Least-Squares Problems section of the <a href="https://cran.r-project.org/web/views/Optimization.html">CRAN Optimization task view</a>.</p>
-<div id="new-gsl-nonlinear-least-squares-solvers" class="section level3">
-<h3>New GSL nonlinear least squares solvers</h3>
+</div>
+<div id="new-gsl-nonlinear-least-squares-solvers" class="section level2">
+<h2>New GSL nonlinear least squares solvers</h2>
 <p>The new <a href="https://CRAN.R-project.org/package=gslnls"><code>gslnls</code></a>-package augments the existing suite of nonlinear least squares solvers available in R by providing R bindings to nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>
-using the trust region methods implemented by the <code>gsl_multifit_nlinear</code> and <code>gsl_multilarge_nlinear</code> modules. These modules where added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in <span class="citation"><a href="#ref-G09" role="doc-biblioref">Galassi et al.</a> (<a href="#ref-G09" role="doc-biblioref">2009</a>)</span>.</p>
+using the trust region methods implemented by the <code>gsl_multifit_nlinear</code> and <code>gsl_multilarge_nlinear</code> modules. These modules were added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in <span class="citation"><a href="#ref-G09" role="doc-biblioref">Galassi et al.</a> (<a href="#ref-G09" role="doc-biblioref">2009</a>)</span>.</p>
 <p>The following trust region methods to solve nonlinear least-squares problems are available in the <code>gsnls</code>-package:</p>
 <ul>
 <li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt">Levenberg-Marquardt</a></li>
@@ -65,7 +66,6 @@ using the trust region methods implemented by the <code>gsl_multifit_nlinear</co
 <li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#two-dimensional-subspace">Two Dimensional Subspace</a></li>
 <li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#steihaug-toint-conjugate-gradient">Steihaug-Toint Conjugate Gradient</a> (only for large-scale problems)</li>
 </ul>
-</div>
 </div>
 </div>
 <div id="howwhen-to-use-gslnls" class="section level1">
@@ -288,7 +288,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;  26.189   0.061  26.251
+#&gt;  25.022   0.080  25.102
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(small_lm), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.00477904</code></pre>
@@ -304,7 +304,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;   0.974   0.000   0.973
+#&gt;   0.956   0.000   0.955
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(large_cgst), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.004778862</code></pre>
@@ -332,10 +332,10 @@ bench::mark(
 #&gt; # A tibble: 4 × 6
 #&gt;   expression       min   median `itr/sec` mem_alloc `gc/sec`
 #&gt;   &lt;bch:expr&gt;  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
-#&gt; 1 Dense LM       4.34s    4.43s     0.226    1.32GB    6.70 
-#&gt; 2 Dense CGST   892.1ms  919.2ms     1.05   864.49MB   19.7  
-#&gt; 3 Sparse LM      3.99s    3.99s     0.250   29.46MB    0.500
-#&gt; 4 Sparse CGST  366.6ms 370.63ms     2.70    21.22MB    3.24</code></pre>
+#&gt; 1 Dense LM       4.09s    4.21s     0.240    1.32GB    7.09 
+#&gt; 2 Dense CGST   888.6ms  914.4ms     1.05   864.49MB   19.8  
+#&gt; 3 Sparse LM      3.71s    3.73s     0.265   29.46MB    0.529
+#&gt; 4 Sparse CGST    350ms 350.54ms     2.85    21.22MB    3.42</code></pre>
 </div>
 </div>
 </div>
