@@ -57,7 +57,7 @@ In the context of regression, this problem is usually formulated as:</p>
 <h2>New GSL nonlinear least squares solvers</h2>
 <p>The new <a href="https://CRAN.R-project.org/package=gslnls"><code>gslnls</code></a>-package augments the existing suite of nonlinear least squares solvers available in R by providing R bindings to nonlinear least squares optimization with the <a href="https://www.gnu.org/software/gsl/">GNU Scientific Library (GSL)</a>
 using the trust region methods implemented by the <code>gsl_multifit_nlinear</code> and <code>gsl_multilarge_nlinear</code> modules. These modules were added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in <span class="citation"><a href="#ref-G09" role="doc-biblioref">Galassi et al.</a> (<a href="#ref-G09" role="doc-biblioref">2009</a>)</span>.</p>
-<p>The following trust region methods to solve nonlinear least-squares problems are available in the <code>gsnls</code>-package:</p>
+<p>The following trust region methods to solve nonlinear least-squares problems are available in the <code>gslnls</code>-package:</p>
 <ul>
 <li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt">Levenberg-Marquardt</a></li>
 <li><a href="https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt-with-geodesic-acceleration">Levenberg-Marquardt with geodesic acceleration</a></li>
@@ -288,7 +288,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;  25.022   0.080  25.102
+#&gt;  29.289   0.043  29.371
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(small_lm), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.00477904</code></pre>
@@ -304,7 +304,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;   0.956   0.000   0.955
+#&gt;   0.957   0.000   0.958
 
 cat(&quot;Residual sum-of-squares:&quot;, deviance(large_cgst), &quot;\n&quot;)
 #&gt; Residual sum-of-squares: 0.004778862</code></pre>
@@ -332,10 +332,10 @@ bench::mark(
 #&gt; # A tibble: 4 × 6
 #&gt;   expression       min   median `itr/sec` mem_alloc `gc/sec`
 #&gt;   &lt;bch:expr&gt;  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
-#&gt; 1 Dense LM       4.09s    4.21s     0.240    1.32GB    7.09 
-#&gt; 2 Dense CGST   888.6ms  914.4ms     1.05   864.49MB   19.8  
-#&gt; 3 Sparse LM      3.71s    3.73s     0.265   29.46MB    0.529
-#&gt; 4 Sparse CGST    350ms 350.54ms     2.85    21.22MB    3.42</code></pre>
+#&gt; 1 Dense LM       4.05s    4.15s     0.243    1.32GB    7.19 
+#&gt; 2 Dense CGST  890.15ms 919.91ms     1.06   864.49MB   19.9  
+#&gt; 3 Sparse LM      3.74s    3.76s     0.262   29.46MB    0.524
+#&gt; 4 Sparse CGST 346.51ms 347.07ms     2.88    21.22MB    3.45</code></pre>
 </div>
 </div>
 </div>

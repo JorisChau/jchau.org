@@ -68,7 +68,7 @@ External R-packages aimed at nonlinear least squares optimization include the po
 The new [`gslnls`](https://CRAN.R-project.org/package=gslnls)-package augments the existing suite of nonlinear least squares solvers available in R by providing R bindings to nonlinear least squares optimization with the [GNU Scientific Library (GSL)](https://www.gnu.org/software/gsl/)
 using the trust region methods implemented by the `gsl_multifit_nlinear` and `gsl_multilarge_nlinear` modules. These modules were added in GSL version 2.2 (released in August 2016) and the available C routines have been thoroughly tested and are in widespread use in scientific computing. The mathematical background of the nonlinear least squares algorithms and available control parameters are documented in detail in @G09.
 
-The following trust region methods to solve nonlinear least-squares problems are available in the `gsnls`-package:
+The following trust region methods to solve nonlinear least-squares problems are available in the `gslnls`-package:
 
 * [Levenberg-Marquardt](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt)
 * [Levenberg-Marquardt with geodesic acceleration](https://www.gnu.org/software/gsl/doc/html/nls.html#levenberg-marquardt-with-geodesic-acceleration)
