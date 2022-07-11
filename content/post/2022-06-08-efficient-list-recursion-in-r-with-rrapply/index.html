@@ -1,0 +1,912 @@
+---
+title: 'Efficient list recursion in R with {rrapply}'
+author: Joris Chau
+date: '2022-06-08'
+slug: efficient-list-recursion-in-r-with-rrapply
+categories:
+  - R
+  - rrapply
+tags:
+  - rrapply
+  - R
+  - list
+  - recursion
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2022-06-08T08:38:33+02:00'
+featured: no
+image:
+  placement: 1
+  caption: ''
+  focal_point: ''
+  preview_only: yes
+projects: []
+---
+
+
+
+<p><img src="sticker.png" alt="sticker" style="float:right; margin-top:0rem; margin-bottom:1rem; padding:0px;" width="100px"/></p>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The nested list below shows a small extract from the <a href="https://www.genealogy.math.ndsu.nodak.edu/">Mathematics Genealogy Project</a> highlighting the advisor/student genealogy of several famous mathematicians. The mathematician’s given names are present in the <code>"given"</code> attribute of each list element. The numeric values at the leaf elements are the total number of student descendants according to the website as of June 2022. If no descendants are available there is a missing value present at the leaf element.</p>
+<pre class="r"><code>students &lt;- list(
+  Bernoulli = structure(list(
+    Bernoulli = structure(list(
+      Bernoulli = structure(1L, given = &quot;Daniel&quot;),
+      Euler = structure(list(
+        Euler = structure(NA, given = &quot;Johann&quot;),
+        Lagrange = structure(list(
+          Fourier = structure(73788L, given = &quot;Jean-Baptiste&quot;), 
+          Plana = structure(NA, given = &quot;Giovanni&quot;),
+          Poisson = structure(128235L, given = &quot;Simeon&quot;)
+        ), given = &quot;Joseph&quot;)
+      ), given = &quot;Leonhard&quot;)
+    ), given = &quot;Johann&quot;),
+    Bernoulli = structure(NA, given = &quot;Nikolaus&quot;)
+  ), given = &quot;Jacob&quot;)
+)
+
+str(students, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Bernoulli:List of 2
+#&gt;   ..$ Bernoulli:List of 2
+#&gt;   .. ..$ Bernoulli: int 1
+#&gt;   .. ..$ Euler    :List of 2
+#&gt;   .. .. ..$ Euler   : logi NA
+#&gt;   .. .. ..$ Lagrange:List of 3
+#&gt;   .. .. .. ..$ Fourier: int 73788
+#&gt;   .. .. .. ..$ Plana  : logi NA
+#&gt;   .. .. .. ..$ Poisson: int 128235
+#&gt;   ..$ Bernoulli: logi NA</code></pre>
+<p>As an exercise in list recursion, consider the following simple data exploration question:</p>
+<blockquote>
+<p>Filter all descendants of ‘Leonhard Euler’ and replace all missing values by zero while maintaining the list structure.</p>
+</blockquote>
+<p>Here is a possible (not so efficient) base R solution using recursion with the <code>Recall()</code> function:</p>
+<pre class="r"><code>filter_desc_euler &lt;- \(x) {
+  i &lt;- 1
+  while(i &lt;= length(x)) {
+    if(identical(names(x)[i], &quot;Euler&quot;) &amp; identical(attr(x[[i]], &quot;given&quot;), &quot;Leonhard&quot;)) {
+      x[[i]] &lt;- rapply(x[[i]], f = \(x) replace(x, is.na(x), 0), how = &quot;replace&quot;)
+      i &lt;- i + 1
+    } else {
+      if(is.list(x[[i]])) {
+        val &lt;- Recall(x[[i]])
+        x[[i]] &lt;- val
+        i &lt;- i + !is.null(val)
+      } else {
+        x[[i]] &lt;- NULL
+      }
+      if(all(sapply(x, is.null))) {
+        x &lt;- NULL
+      }
+    }
+  }
+  return(x)
+}
+
+str(filter_desc_euler(students), give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Bernoulli:List of 1
+#&gt;   ..$ Bernoulli:List of 1
+#&gt;   .. ..$ Euler:List of 2
+#&gt;   .. .. ..$ Euler   : num 0
+#&gt;   .. .. ..$ Lagrange:List of 3
+#&gt;   .. .. .. ..$ Fourier: num 73788
+#&gt;   .. .. .. ..$ Plana  : num 0
+#&gt;   .. .. .. ..$ Poisson: num 128235</code></pre>
+<p>This works, but is hardly the kind of convoluted code we would like to write for such a seemingly simple question. Moreover, this code is not very easy to follow, which can make updating or modifying it quite a time-consuming and error-prone task.</p>
+<p>An alternative approach would be to unnest the list into a more manageable (e.g. rectangular) format or use specialized packages, such as <a href="https://igraph.org/r/">igraph</a> or <a href="https://CRAN.R-project.org/package=data.tree">data.tree</a>, to make pruning or modifying node entries more straightforward. Note that attention must be paid to correctly include the node attributes in the transformed object as the node names themselves are not unique in this example. This is a sensible approach and usually the way to go when cleaning or tidying up the data, but for fast prototyping and data exploration tasks we may want to keep the list in its original format to reduce the number of processing steps and minimize the code complexity. Sometimes it is also required to maintain a nested data structure as this can be for instance the expected input format for some data visualization or data exporting function.</p>
+<p>The recursive function above makes use of base <code>rapply()</code>, a member of the <a href="https://rdrr.io/r/base/lapply.html">apply</a>-family of functions in R, that allows to apply a function recursively to the elements of a nested list and decide how the returned result is structured. Although sometimes useful, the existing <code>rapply()</code> function is often not sufficiently flexible for list recursion tasks in practice, for instance for pruning elements of a nested list (as demonstrated above). In this context, the <code>rrapply()</code> function in the minimal <code>rrapply</code>-package attempts to enhance and update base <code>rapply()</code> to make it more generally applicable for list recursion in the wild. The <code>rrapply()</code> function builds upon R’s native C implementation of<code>rapply()</code> and for this reason requires no other external dependencies.</p>
+</div>
+<div id="when-to-use-rrapply" class="section level1">
+<h1>When to use <code>rrapply()</code></h1>
+<p>For demonstrational purposes, we make use of the two datasets <code>renewable_energy_by_country</code> and <code>pokedex</code> included in the <code>rrapply</code>-package. <code>renewable_energy_by_country</code> is a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016. The data is publicly available at the <a href="https://unstats-undesa.opendata.arcgis.com/datasets/">United Nations Open SDG Data Hub</a>. The 249 countries and areas are structured based on their geographical locations according to the <a href="https://unstats.un.org/unsd/methodology/m49/">United Nations M49 standard</a>. The numeric values listed for each country are percentages, if no data is available the value of the country is <code>NA</code>. <code>pokedex</code> is a nested list containing various property values for each of the 151 original Pokémon available (in .json) from <a href="https://github.com/Biuni/PokemonGO-Pokedex" class="uri">https://github.com/Biuni/PokemonGO-Pokedex</a>.</p>
+<pre class="r"><code>library(rrapply)
+data(&quot;renewable_energy_by_country&quot;)</code></pre>
+<p>For convenience, we subset only the values for countries and areas in Oceania from <code>renewable_energy_by_country</code>,</p>
+<pre class="r"><code>renewable_oceania &lt;- renewable_energy_by_country[[&quot;World&quot;]][&quot;Oceania&quot;]
+str(renewable_oceania, list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 6
+#&gt;   .. ..$ Australia                        : num 9.32
+#&gt;   .. ..$ Christmas Island                 : logi NA
+#&gt;   .. ..$ Cocos (Keeling) Islands          : logi NA
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 8
+#&gt;   .. ..$ Guam                                : num 3.03
+#&gt;   .. ..$ Kiribati                            : num 45.4
+#&gt;   .. ..$ Marshall Islands                    : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+<div id="list-pruning-and-unnesting" class="section level2">
+<h2>List pruning and unnesting</h2>
+<div id="how-prune" class="section level3">
+<h3><code>how = "prune"</code></h3>
+<p>With base <code>rapply()</code>, there is no convenient way to prune or filter elements from the input list. The <code>rrapply()</code> function adds an option <code>how = "prune"</code> to prune all list elements not subject to application of the function <code>f</code> from a nested list. The original list structure is retained, similar to the non-pruned versions <code>how = "replace"</code> and <code>how = "list"</code>. Using <code>how = "prune"</code> and the same syntax as in <code>rapply()</code>, we can easily drop all missing values from the list while preserving the nested list structure:</p>
+<pre class="r"><code>## drop all logical NA&#39;s while preserving list structure 
+rrapply(
+  renewable_oceania,
+  f = \(x) x,  
+  classes = &quot;numeric&quot;,
+  how = &quot;prune&quot;
+) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 2
+#&gt;   .. ..$ Australia  : num 9.32
+#&gt;   .. ..$ New Zealand: num 32.8
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 7
+#&gt;   .. ..$ Guam                            : num 3.03
+#&gt;   .. ..$ Kiribati                        : num 45.4
+#&gt;   .. ..$ Marshall Islands                : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+<p><strong>Remark</strong>: if the <code>f</code> function is missing, it defaults to the identity function. That is, the <code>f</code> argument can be dropped when no (non-trivial) function is applied to the list elements.</p>
+</div>
+<div id="how-flatten" class="section level3">
+<h3><code>how = "flatten"</code></h3>
+<p>Instead, we can set <code>how = "flatten"</code> to return a <em>flattened</em> unnested version of the pruned list. This is more efficient than first returning the pruned list with <code>how = "prune"</code> and unlisting or flattening the list in a subsequent step.</p>
+<pre class="r"><code>## drop all logical NA&#39;s and return unnested list
+rrapply(
+  renewable_oceania,
+  classes = &quot;numeric&quot;,
+  how = &quot;flatten&quot;
+) |&gt;
+  head(n = 10)
+#&gt;        Australia      New Zealand             Fiji    New Caledonia 
+#&gt;             9.32            32.76            24.36             4.03 
+#&gt; Papua New Guinea  Solomon Islands          Vanuatu             Guam 
+#&gt;            50.34            65.73            33.67             3.03 
+#&gt;         Kiribati Marshall Islands 
+#&gt;            45.43            11.75</code></pre>
+<p><strong>Hint</strong>: the <code>options</code> argument allows to tune several options specific to certain choices of <code>how</code>. With <code>how = "flatten"</code>, we can choose to not coerce the flattened list to a vector and/or to include all parent list names in the result similar to <code>how = "unlist"</code> but then with a custom name separator.</p>
+<pre class="r"><code>## flatten to simple list with full names
+rrapply(
+  renewable_oceania,
+  classes = &quot;numeric&quot;,
+  how = &quot;flatten&quot;,
+  options = list(namesep = &quot;.&quot;, simplify = FALSE)
+) |&gt;
+  str(list.len = 10, give.attr = FALSE)
+#&gt; List of 29
+#&gt;  $ Oceania.Australia and New Zealand.Australia        : num 9.32
+#&gt;  $ Oceania.Australia and New Zealand.New Zealand      : num 32.8
+#&gt;  $ Oceania.Melanesia.Fiji                             : num 24.4
+#&gt;  $ Oceania.Melanesia.New Caledonia                    : num 4.03
+#&gt;  $ Oceania.Melanesia.Papua New Guinea                 : num 50.3
+#&gt;  $ Oceania.Melanesia.Solomon Islands                  : num 65.7
+#&gt;  $ Oceania.Melanesia.Vanuatu                          : num 33.7
+#&gt;  $ Oceania.Micronesia.Guam                            : num 3.03
+#&gt;  $ Oceania.Micronesia.Kiribati                        : num 45.4
+#&gt;  $ Oceania.Micronesia.Marshall Islands                : num 11.8
+#&gt;   [list output truncated]</code></pre>
+</div>
+<div id="how-melt" class="section level3">
+<h3><code>how = "melt"</code></h3>
+<p>Using <code>how = "melt"</code>, we can return a melted data.frame of the pruned list similar in format to <code>reshape2::melt()</code> applied to a nested list. The rows of the melted data.frame contain the parent node paths of the elements in the pruned list. The <code>"value"</code> column contains the values of the terminal or leaf nodes analogous to the flattened list returned by <code>how = "flatten"</code>.</p>
+<pre class="r"><code>## drop all logical NA&#39;s and return melted data.frame
+oceania_melt &lt;- rrapply(
+  renewable_oceania,
+  classes = &quot;numeric&quot;,
+  how = &quot;melt&quot;
+) 
+head(oceania_melt, n = 10)
+#&gt;         L1                        L2               L3 value
+#&gt; 1  Oceania Australia and New Zealand        Australia  9.32
+#&gt; 2  Oceania Australia and New Zealand      New Zealand 32.76
+#&gt; 3  Oceania                 Melanesia             Fiji 24.36
+#&gt; 4  Oceania                 Melanesia    New Caledonia  4.03
+#&gt; 5  Oceania                 Melanesia Papua New Guinea 50.34
+#&gt; 6  Oceania                 Melanesia  Solomon Islands 65.73
+#&gt; 7  Oceania                 Melanesia          Vanuatu 33.67
+#&gt; 8  Oceania                Micronesia             Guam  3.03
+#&gt; 9  Oceania                Micronesia         Kiribati 45.43
+#&gt; 10 Oceania                Micronesia Marshall Islands 11.75</code></pre>
+<p><strong>Remark</strong>: if no names are present in a certain sublist of the input list, <code>how = "melt"</code> replaces the names in the melted data.frame by list element indices <code>"1"</code>, <code>"2"</code>, etc.</p>
+<pre class="r"><code>## drop some area names 
+renewable_oceania1 &lt;- renewable_oceania
+renewable_oceania1[[1]] &lt;- unname(renewable_oceania[[1]])
+
+## drop all logical NA&#39;s and return melted data.frame
+rrapply(
+  renewable_oceania1,
+  classes = &quot;numeric&quot;,
+  how = &quot;melt&quot;
+) |&gt;
+  head(n = 10)
+#&gt;         L1 L2               L3 value
+#&gt; 1  Oceania  1        Australia  9.32
+#&gt; 2  Oceania  1      New Zealand 32.76
+#&gt; 3  Oceania  2             Fiji 24.36
+#&gt; 4  Oceania  2    New Caledonia  4.03
+#&gt; 5  Oceania  2 Papua New Guinea 50.34
+#&gt; 6  Oceania  2  Solomon Islands 65.73
+#&gt; 7  Oceania  2          Vanuatu 33.67
+#&gt; 8  Oceania  3             Guam  3.03
+#&gt; 9  Oceania  3         Kiribati 45.43
+#&gt; 10 Oceania  3 Marshall Islands 11.75</code></pre>
+<p>A melted data.frame can be used to reconstruct a nested list with <code>how = "unmelt"</code>. No skeleton object as e.g. required by <code>relist()</code> is needed, only an ordinary data.frame in the format returned by <code>how = "melt"</code>. This option can be convenient to construct nested lists from a rectangular data.frame format without having to resort to recursive function definitions.</p>
+<pre class="r"><code>## reconstruct nested list from melted data.frame
+rrapply(oceania_melt, how = &quot;unmelt&quot;) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 2
+#&gt;   .. ..$ Australia  : num 9.32
+#&gt;   .. ..$ New Zealand: num 32.8
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 7
+#&gt;   .. ..$ Guam                            : num 3.03
+#&gt;   .. ..$ Kiribati                        : num 45.4
+#&gt;   .. ..$ Marshall Islands                : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+</div>
+<div id="how-bind" class="section level3">
+<h3><code>how = "bind"</code></h3>
+<p>Nested lists containing repeated observations can be unnested with <code>how = "bind"</code>. Each repeated sublist is expanded
+as a single row in a wide data.frame and identical sublist component names are aligned as individual columns. By default, the list layer containing the repeated observations is identified by the minimal depth detected across leaf elements, but this can also be overridden using the <code>coldepth</code> option in the <code>options</code> argument. Note that the returned data.frame is similar in format to repeated application of <code>tidyr::unnest_wider()</code> to a nested data.frame, with the same coercion rules applied to the individual columns as `how = “unlist”.</p>
+<pre class="r"><code>data(&quot;pokedex&quot;)
+str(pokedex, list.len = 3)
+#&gt; List of 1
+#&gt;  $ pokemon:List of 151
+#&gt;   ..$ :List of 16
+#&gt;   .. ..$ id            : int 1
+#&gt;   .. ..$ num           : chr &quot;001&quot;
+#&gt;   .. ..$ name          : chr &quot;Bulbasaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 17
+#&gt;   .. ..$ id            : int 2
+#&gt;   .. ..$ num           : chr &quot;002&quot;
+#&gt;   .. ..$ name          : chr &quot;Ivysaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 15
+#&gt;   .. ..$ id            : int 3
+#&gt;   .. ..$ num           : chr &quot;003&quot;
+#&gt;   .. ..$ name          : chr &quot;Venusaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+<pre class="r"><code>## unnest list to wide data.frame
+rrapply(pokedex, how = &quot;bind&quot;)[, c(1:3, 5:8)] |&gt;
+  head(n = 10)
+#&gt;    id num       name          type height   weight            candy
+#&gt; 1   1 001  Bulbasaur Grass, Poison 0.71 m   6.9 kg  Bulbasaur Candy
+#&gt; 2   2 002    Ivysaur Grass, Poison 0.99 m  13.0 kg  Bulbasaur Candy
+#&gt; 3   3 003   Venusaur Grass, Poison 2.01 m 100.0 kg  Bulbasaur Candy
+#&gt; 4   4 004 Charmander          Fire 0.61 m   8.5 kg Charmander Candy
+#&gt; 5   5 005 Charmeleon          Fire 1.09 m  19.0 kg Charmander Candy
+#&gt; 6   6 006  Charizard  Fire, Flying 1.70 m  90.5 kg Charmander Candy
+#&gt; 7   7 007   Squirtle         Water 0.51 m   9.0 kg   Squirtle Candy
+#&gt; 8   8 008  Wartortle         Water 0.99 m  22.5 kg   Squirtle Candy
+#&gt; 9   9 009  Blastoise         Water 1.60 m  85.5 kg   Squirtle Candy
+#&gt; 10 10 010   Caterpie           Bug 0.30 m   2.9 kg   Caterpie Candy</code></pre>
+<p><strong>Hint</strong>: setting <code>namecols = TRUE</code> in the <code>options</code> argument includes the parent list names associated to each row in the wide data.frame as individual columns <code>L1</code>, <code>L2</code>, etc.</p>
+<pre class="r"><code>## bind to data.frame including parent columns
+pokemon_evolutions &lt;- rrapply(
+  pokedex, 
+  how = &quot;bind&quot;, 
+  options = list(namecols = TRUE, coldepth = 5)
+) 
+head(pokemon_evolutions, n = 10)
+#&gt;         L1 L2             L3 L4 num       name
+#&gt; 1  pokemon  1 next_evolution  1 002    Ivysaur
+#&gt; 2  pokemon  1 next_evolution  2 003   Venusaur
+#&gt; 3  pokemon  2 prev_evolution  1 001  Bulbasaur
+#&gt; 4  pokemon  2 next_evolution  1 003   Venusaur
+#&gt; 5  pokemon  3 prev_evolution  1 001  Bulbasaur
+#&gt; 6  pokemon  3 prev_evolution  2 002    Ivysaur
+#&gt; 7  pokemon  4 next_evolution  1 005 Charmeleon
+#&gt; 8  pokemon  4 next_evolution  2 006  Charizard
+#&gt; 9  pokemon  5 prev_evolution  1 004 Charmander
+#&gt; 10 pokemon  5 next_evolution  1 006  Charizard</code></pre>
+<p>This can be useful to unnest repeated list elements at multiple nested list levels and join the results into a single data.frame:</p>
+<pre class="r"><code>## merge pokemon evolutions with pokemon names
+rrapply(
+  pokedex,
+  how = &quot;bind&quot;,
+  options = list(namecols = TRUE)
+)[, c(&quot;L1&quot;, &quot;L2&quot;, &quot;name&quot;)] |&gt;
+  merge(
+    pokemon_evolutions[, c(&quot;L1&quot;, &quot;L2&quot;, &quot;L3&quot;, &quot;name&quot;)],
+    by = c(&quot;L1&quot;, &quot;L2&quot;),
+    suffixes = c(&quot;&quot;, &quot;.evolution&quot;)
+  ) |&gt;
+  head(n = 10)
+#&gt;         L1  L2      name             L3 name.evolution
+#&gt; 1  pokemon   1 Bulbasaur next_evolution        Ivysaur
+#&gt; 2  pokemon   1 Bulbasaur next_evolution       Venusaur
+#&gt; 3  pokemon  10  Caterpie next_evolution        Metapod
+#&gt; 4  pokemon  10  Caterpie next_evolution     Butterfree
+#&gt; 5  pokemon 100   Voltorb next_evolution      Electrode
+#&gt; 6  pokemon 101 Electrode prev_evolution        Voltorb
+#&gt; 7  pokemon 102 Exeggcute next_evolution      Exeggutor
+#&gt; 8  pokemon 103 Exeggutor prev_evolution      Exeggcute
+#&gt; 9  pokemon 104    Cubone next_evolution        Marowak
+#&gt; 10 pokemon 105   Marowak prev_evolution         Cubone</code></pre>
+</div>
+</div>
+<div id="condition-function" class="section level2">
+<h2>Condition function</h2>
+<p>Base <code>rapply()</code> allows to apply a function <code>f</code> to list elements of certain types or classes via the <code>classes</code> argument. <code>rrapply()</code> generalizes this concept via an additional <code>condition</code> argument, which accepts any function to use as a condition or predicate to apply <code>f</code> to a subset of list elements. Conceptually, the <code>f</code> function is applied to all leaf elements for which the <code>condition</code> function exactly evaluates to <code>TRUE</code> similar to <code>isTRUE()</code>. If the <code>condition</code> argument is missing, <code>f</code> is applied to all leaf elements. In combination with <code>how = "prune"</code>, the <code>condition</code> function provides additional flexibility in selecting and filtering elements from a nested list,</p>
+<pre class="r"><code>## drop all NA&#39;s using condition function
+rrapply(
+  renewable_oceania,
+  condition = \(x) !is.na(x),
+  how = &quot;prune&quot;
+) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 2
+#&gt;   .. ..$ Australia  : num 9.32
+#&gt;   .. ..$ New Zealand: num 32.8
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 7
+#&gt;   .. ..$ Guam                            : num 3.03
+#&gt;   .. ..$ Kiribati                        : num 45.4
+#&gt;   .. ..$ Marshall Islands                : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+<p>More interesting is to consider a <code>condition</code> that cannot also be defined using the <code>classes</code> argument. For instance, we can filter all countries with values that satisfy a certain numeric condition:</p>
+<pre class="r"><code>## filter all countries with values above 85%
+rrapply(
+  renewable_energy_by_country, 
+  condition = \(x) x &gt; 85, 
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 1
+#&gt;   ..$ Africa:List of 1
+#&gt;   .. ..$ Sub-Saharan Africa:List of 3
+#&gt;   .. .. ..$ Eastern Africa:List of 7
+#&gt;   .. .. .. ..$ Burundi                    : num 89.2
+#&gt;   .. .. .. ..$ Ethiopia                   : num 91.9
+#&gt;   .. .. .. ..$ Rwanda                     : num 86
+#&gt;   .. .. .. ..$ Somalia                    : num 94.7
+#&gt;   .. .. .. ..$ Uganda                     : num 88.6
+#&gt;   .. .. .. ..$ United Republic of Tanzania: num 86.1
+#&gt;   .. .. .. ..$ Zambia                     : num 88.5
+#&gt;   .. .. ..$ Middle Africa :List of 2
+#&gt;   .. .. .. ..$ Chad                            : num 85.3
+#&gt;   .. .. .. ..$ Democratic Republic of the Congo: num 97
+#&gt;   .. .. ..$ Western Africa:List of 1
+#&gt;   .. .. .. ..$ Guinea-Bissau: num 86.5
+
+## or by passing arguments to condition via ...
+rrapply(
+  renewable_energy_by_country, 
+  condition = &quot;==&quot;, 
+  e2 = 0, 
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 4
+#&gt;   ..$ Americas:List of 1
+#&gt;   .. ..$ Latin America and the Caribbean:List of 1
+#&gt;   .. .. ..$ Caribbean:List of 1
+#&gt;   .. .. .. ..$ Antigua and Barbuda: num 0
+#&gt;   ..$ Asia    :List of 1
+#&gt;   .. ..$ Western Asia:List of 4
+#&gt;   .. .. ..$ Bahrain: num 0
+#&gt;   .. .. ..$ Kuwait : num 0
+#&gt;   .. .. ..$ Oman   : num 0
+#&gt;   .. .. ..$ Qatar  : num 0
+#&gt;   ..$ Europe  :List of 2
+#&gt;   .. ..$ Northern Europe:List of 1
+#&gt;   .. .. ..$ Channel Islands:List of 1
+#&gt;   .. .. .. ..$ Guernsey: num 0
+#&gt;   .. ..$ Southern Europe:List of 1
+#&gt;   .. .. ..$ Gibraltar: num 0
+#&gt;   ..$ Oceania :List of 2
+#&gt;   .. ..$ Micronesia:List of 1
+#&gt;   .. .. ..$ Northern Mariana Islands: num 0
+#&gt;   .. ..$ Polynesia :List of 1
+#&gt;   .. .. ..$ Wallis and Futuna Islands: num 0</code></pre>
+<p>Note that the <code>NA</code> elements are not returned, as the <code>condition</code> function does not evaluate to <code>TRUE</code> for <code>NA</code> values.</p>
+<p>As the <code>condition</code> function is a generalization of the <code>classes</code> argument, it remains possible to use <code>deflt</code> together with <code>how = "list"</code> or <code>how = "unlist"</code> to set a default value to all leaf elements for which the <code>condition</code> is not <code>TRUE</code>:</p>
+<pre class="r"><code>## replace all NA elements by zero
+rrapply(
+  renewable_oceania, 
+  condition = Negate(is.na), 
+  deflt = 0, 
+  how = &quot;list&quot;
+) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 6
+#&gt;   .. ..$ Australia                        : num 9.32
+#&gt;   .. ..$ Christmas Island                 : num 0
+#&gt;   .. ..$ Cocos (Keeling) Islands          : num 0
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 8
+#&gt;   .. ..$ Guam                                : num 3.03
+#&gt;   .. ..$ Kiribati                            : num 45.4
+#&gt;   .. ..$ Marshall Islands                    : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+<p>To be consistent with base <code>rapply()</code>, the <code>deflt</code> argument can still only be used in combination with <code>how = "list"</code> or <code>how = "unlist"</code>.</p>
+<div id="using-the-...-argument" class="section level3">
+<h3>Using the <code>...</code> argument</h3>
+<p>The first argument to <code>f</code> always evaluates to the content of the list element to which <code>f</code> is applied. Any further arguments, (besides the special arguments <code>.xname</code>, <code>.xpos</code>, <code>.xparents</code> and <code>.xsiblings</code> discussed below), that are independent of the list content can be supplied via the <code>...</code> argument. Since <code>rrapply()</code> accepts a function in two of its arguments <code>f</code> and <code>condition</code>, any arguments defined via the <code>...</code> need to be defined as function arguments in <em>both</em> the <code>f</code> and <code>condition</code> functions (if existing), even if they are not used in the function itself.</p>
+<p>To clarify, consider the following example which replaces all missing values by a value defined in a separate argument <code>newvalue</code>:</p>
+<pre class="r"><code>## this is not ok!
+tryCatch({
+  rrapply(
+    renewable_oceania, 
+    condition = is.na, 
+    f = \(x, newvalue) newvalue, 
+    newvalue = 0, 
+    how = &quot;replace&quot;
+  )
+}, error = function(error) error$message)
+#&gt; [1] &quot;2 arguments passed to &#39;is.na&#39; which requires 1&quot;
+
+## this is ok
+rrapply(
+  renewable_oceania, 
+  condition = \(x, newvalue) is.na(x), 
+  f = \(x, newvalue) newvalue, 
+  newvalue = 0, 
+  how = &quot;replace&quot;
+) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 6
+#&gt;   .. ..$ Australia                        : num 9.32
+#&gt;   .. ..$ Christmas Island                 : num 0
+#&gt;   .. ..$ Cocos (Keeling) Islands          : num 0
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 8
+#&gt;   .. ..$ Guam                                : num 3.03
+#&gt;   .. ..$ Kiribati                            : num 45.4
+#&gt;   .. ..$ Marshall Islands                    : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+</div>
+</div>
+<div id="special-arguments-.xname-.xpos-.xparents-and-.xsiblings" class="section level2">
+<h2>Special arguments <code>.xname</code>, <code>.xpos</code>, <code>.xparents</code> and <code>.xsiblings</code></h2>
+<p>With base <code>rapply()</code>, the <code>f</code> function only has access to the <em>content</em> of the list element under evaluation, and there is no convenient way to access its name or location in the nested list from inside the <code>f</code> function. To overcome this limitation, <code>rrapply()</code> defines the special arguments <code>.xname</code>, <code>.xpos</code>, <code>.xparents</code> and <code>.xsiblings</code> inside the <code>f</code> and <code>condition</code> functions (in addition to the principal function argument):</p>
+<ul>
+<li><code>.xname</code> evaluates to the name of the list element;</li>
+<li><code>.xpos</code> evaluates to the position of the element in the nested list structured as an integer vector;</li>
+<li><code>.xparents</code> evaluates to a vector of parent list names in the path to the current list element;</li>
+<li><code>.xsiblings</code> evaluates to the parent list containing the current list element and its direct siblings.</li>
+</ul>
+<p>Using the <code>.xname</code> and <code>.xpos</code> arguments, we can transform or filter list elements based on their names and/or positions in the nested list:</p>
+<pre class="r"><code>## apply f based on element&#39;s name
+rrapply(
+  renewable_oceania,
+  condition = \(x) !is.na(x),
+  f = \(x, .xname) sprintf(&quot;Renewable energy in %s: %.2f%%&quot;, .xname, x),
+  how = &quot;flatten&quot;
+) |&gt;
+  head(n = 5)
+#&gt;                                      Australia 
+#&gt;         &quot;Renewable energy in Australia: 9.32%&quot; 
+#&gt;                                    New Zealand 
+#&gt;      &quot;Renewable energy in New Zealand: 32.76%&quot; 
+#&gt;                                           Fiji 
+#&gt;             &quot;Renewable energy in Fiji: 24.36%&quot; 
+#&gt;                                  New Caledonia 
+#&gt;     &quot;Renewable energy in New Caledonia: 4.03%&quot; 
+#&gt;                               Papua New Guinea 
+#&gt; &quot;Renewable energy in Papua New Guinea: 50.34%&quot;
+
+## filter elements by name
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xname) .xname %in% c(&quot;Belgium&quot;, &quot;Netherlands&quot;, &quot;Luxembourg&quot;),
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 1
+#&gt;   ..$ Europe:List of 1
+#&gt;   .. ..$ Western Europe:List of 3
+#&gt;   .. .. ..$ Belgium    : num 9.14
+#&gt;   .. .. ..$ Luxembourg : num 13.5
+#&gt;   .. .. ..$ Netherlands: num 5.78</code></pre>
+<p>Knowing that Europe is located at <code>renewable_energy_by_country[[c(1, 5)]]</code>, we can filter all European countries with a renewable energy share above 50% using the <code>.xpos</code> argument as follows,</p>
+<pre class="r"><code>## filter European countries &gt; 50% using .xpos
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xpos) identical(.xpos[1:2], c(1L, 5L)) &amp;&amp; x &gt; 50,
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 1
+#&gt;   ..$ Europe:List of 2
+#&gt;   .. ..$ Northern Europe:List of 3
+#&gt;   .. .. ..$ Iceland: num 78.1
+#&gt;   .. .. ..$ Norway : num 59.5
+#&gt;   .. .. ..$ Sweden : num 51.4
+#&gt;   .. ..$ Western Europe :List of 1
+#&gt;   .. .. ..$ Liechtenstein: num 62.9</code></pre>
+<p>This can be done more conveniently using the <code>.xparents</code> argument, which this does not require looking up the location of Europe in the nested list,</p>
+<pre class="r"><code>## filter European countries &gt; 50% using .xparents
+rrapply(
+  renewable_energy_by_country,
+  condition = function(x, .xparents) &quot;Europe&quot; %in% .xparents &amp;&amp; x &gt; 50,
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 1
+#&gt;   ..$ Europe:List of 2
+#&gt;   .. ..$ Northern Europe:List of 3
+#&gt;   .. .. ..$ Iceland: num 78.1
+#&gt;   .. .. ..$ Norway : num 59.5
+#&gt;   .. .. ..$ Sweden : num 51.4
+#&gt;   .. ..$ Western Europe :List of 1
+#&gt;   .. .. ..$ Liechtenstein: num 62.9</code></pre>
+<p>Using the <code>.xpos</code> argument, we can quickly look up the position of a specific element in the nested list,</p>
+<pre class="r"><code>## return position of Sweden in list
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xname) .xname == &quot;Sweden&quot;,
+  f = \(x, .xpos) .xpos,
+  how = &quot;flatten&quot;
+)
+#&gt; $Sweden
+#&gt; [1]  1  5  2 14</code></pre>
+<p>Using the <code>.xsiblings</code> argument, we can look up the direct neighbors of an element in the nested list,</p>
+<pre class="r"><code>## look up neighbors of Sweden in list
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xsiblings) &quot;Sweden&quot; %in% names(.xsiblings),
+  how = &quot;flatten&quot;
+) |&gt;
+  head(n = 10)
+#&gt; Aland Islands       Denmark       Estonia Faroe Islands       Finland 
+#&gt;            NA         33.06         26.55          4.24         42.03 
+#&gt;       Iceland       Ireland   Isle of Man        Latvia     Lithuania 
+#&gt;         78.07          8.65          4.30         38.48         31.42</code></pre>
+<p>We can also use the <code>.xpos</code> argument to determine the maximum depth of the list or the length of the longest sublist as follows,</p>
+<pre class="r"><code>## maximum list depth
+rrapply(
+  renewable_energy_by_country, 
+  f = \(x, .xpos) length(.xpos), 
+  how = &quot;unlist&quot;
+) |&gt;
+  max()
+#&gt; [1] 5
+
+## longest sublist length
+rrapply(
+  renewable_energy_by_country, 
+  f = \(x, .xpos) max(.xpos), 
+  how = &quot;unlist&quot;
+) |&gt;
+  max()
+#&gt; [1] 28</code></pre>
+<p>When unnesting nested lists with <code>how = "bind"</code>, the <code>.xname</code>, <code>.xpos</code> or <code>.xparents</code> arguments can be useful to decide which list elements to include in the unnested data.frame:</p>
+<pre class="r"><code>## filter elements and unnest list  
+rrapply(
+  pokedex,
+  condition = \(x, .xpos, .xname) length(.xpos) &lt; 4 &amp; .xname %in% c(&quot;num&quot;, &quot;name&quot;, &quot;type&quot;),
+  how = &quot;bind&quot;
+) |&gt;
+  head()
+#&gt;   num       name          type
+#&gt; 1 001  Bulbasaur Grass, Poison
+#&gt; 2 002    Ivysaur Grass, Poison
+#&gt; 3 003   Venusaur Grass, Poison
+#&gt; 4 004 Charmander          Fire
+#&gt; 5 005 Charmeleon          Fire
+#&gt; 6 006  Charizard  Fire, Flying</code></pre>
+</div>
+<div id="modifying-list-elements" class="section level2">
+<h2>Modifying list elements</h2>
+<p>By default, both base <code>rapply()</code> and <code>rrapply()</code> recurse into any <em>list-like</em> element. Setting <code>classes = "list"</code> in <code>rrapply()</code> overrides this behavior and applies the <code>f</code> function to any list element (i.e. a sublist) that satisfies the <code>condition</code> argument. If the <code>condition</code> is not satisfied for a list element, <code>rrapply()</code> recurses further into the sublist, applies <code>f</code> to the elements that satisfy <code>condition</code> and so on. The use of <code>classes = "list"</code> signals the <code>rrapply()</code> function not to descend into list objects by default. For this reason this behavior can only be triggered via the <code>classes</code> argument and <em>not</em> through the use of e.g. <code>condition = is.list</code>.</p>
+<p>The mode <code>classes = "list"</code> can be useful to e.g. collapse sublists or calculate summary statistics across elements in a nested list:</p>
+<pre class="r"><code>## calculate mean value of Europe
+rrapply(
+  renewable_energy_by_country,  
+  condition = \(x, .xname) .xname == &quot;Europe&quot;,
+  f = \(x) mean(unlist(x), na.rm = TRUE),
+  classes = &quot;list&quot;,
+  how = &quot;flatten&quot;
+)
+#&gt;   Europe 
+#&gt; 22.36565</code></pre>
+<p>Note that the principal argument in the <code>f</code> function now evaluates to a list. For this reason, we first have to <code>unlist</code> the sublist before calculating the mean.</p>
+<p>To calculate the mean renewable energy shares for each continent, we can make use of the fact that the <code>.xpos</code> vector of each continent has length (i.e. depth) 2:</p>
+<pre class="r"><code>## calculate mean value for each continent
+## (Antartica&#39;s value is missing)
+rrapply(
+  renewable_energy_by_country, 
+  condition = \(x, .xpos) length(.xpos) == 2,
+  f = \(x) mean(unlist(x), na.rm = TRUE),
+  classes = &quot;list&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 6
+#&gt;   ..$ Africa    : num 54.3
+#&gt;   ..$ Americas  : num 18.2
+#&gt;   ..$ Antarctica: logi NA
+#&gt;   ..$ Asia      : num 17.9
+#&gt;   ..$ Europe    : num 22.4
+#&gt;   ..$ Oceania   : num 17.8</code></pre>
+<p><strong>Remark</strong>: if <code>classes = "list"</code>, the <code>f</code> function is only applied to the (non-terminal) list elements. To apply <code>f</code> to both terminal and non-terminal elements in the nested list, we can include additional classes, such as <code>classes = c("list", "numeric", "character")</code>. To apply <code>f</code> to <em>any</em> terminal and non-terminal element in the nested list, we can even combine <code>classes = c("list", "ANY")</code>. To illustrate, we search across all list elements for the country or region with M49-code <code>"155"</code>:</p>
+<pre class="r"><code>## filter country or region by M49-code
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x) attr(x, &quot;M49-code&quot;) == &quot;155&quot;,
+  f = \(x, .xname) .xname,
+  classes = c(&quot;list&quot;, &quot;ANY&quot;), 
+  how = &quot;unlist&quot;
+)
+#&gt; World.Europe.Western Europe 
+#&gt;            &quot;Western Europe&quot;</code></pre>
+<p>As a more complex example, we unnest the Pokémon evolutions in <code>pokedex</code> into a wide data.frame by returning the sublists with Pokémon evolutions as character vectors:</p>
+<pre class="r"><code>## simplify pokemon evolutions to character vectors 
+rrapply(
+  pokedex,
+  condition = \(x, .xname) .xname %in% c(&quot;name&quot;, &quot;next_evolution&quot;, &quot;prev_evolution&quot;), 
+  f = \(x) if(is.list(x)) sapply(x, `[[`, &quot;name&quot;) else x,
+  classes = c(&quot;list&quot;, &quot;character&quot;),
+  how = &quot;bind&quot;
+) |&gt;
+  head(n = 9)
+#&gt;         name        next_evolution         prev_evolution
+#&gt; 1  Bulbasaur     Ivysaur, Venusaur                     NA
+#&gt; 2    Ivysaur              Venusaur              Bulbasaur
+#&gt; 3   Venusaur                    NA     Bulbasaur, Ivysaur
+#&gt; 4 Charmander Charmeleon, Charizard                     NA
+#&gt; 5 Charmeleon             Charizard             Charmander
+#&gt; 6  Charizard                    NA Charmander, Charmeleon
+#&gt; 7   Squirtle  Wartortle, Blastoise                     NA
+#&gt; 8  Wartortle             Blastoise               Squirtle
+#&gt; 9  Blastoise                    NA    Squirtle, Wartortle</code></pre>
+<p><strong>Hint:</strong> as data.frames are also list-like objects, <code>rrapply()</code> applies <code>f</code> to individual data.frame columns by default. Set <code>classes = "data.frame"</code> to avoid this behavior and apply the <code>f</code> and <code>condition</code> functions to complete data.frame objects instead of individual data.frame columns.</p>
+<pre class="r"><code>## create a nested list of data.frames
+oceania_df &lt;- rrapply(
+  renewable_oceania,
+  condition = \(x, .xpos) length(.xpos) == 2,
+  f = \(x) data.frame(name = names(x), value = unlist(x)),
+  classes = &quot;list&quot;,
+  how = &quot;replace&quot;
+)
+
+## this does not work!
+tryCatch({
+  rrapply(
+    oceania_df,
+    f = function(x) subset(x, !is.na(value)), ## filter NA-rows of data.frame
+    how = &quot;replace&quot;
+  )
+}, error = function(error) error$message)
+#&gt; [1] &quot;object &#39;value&#39; not found&quot;
+
+## this does work
+rrapply(
+  oceania_df,
+  f = function(x) subset(x, !is.na(value)),
+  classes = &quot;data.frame&quot;,
+  how = &quot;replace&quot;
+)[[1]][1:2]
+#&gt; $`Australia and New Zealand`
+#&gt;                    name value
+#&gt; Australia     Australia  9.32
+#&gt; New Zealand New Zealand 32.76
+#&gt; 
+#&gt; $Melanesia
+#&gt;                              name value
+#&gt; Fiji                         Fiji 24.36
+#&gt; New Caledonia       New Caledonia  4.03
+#&gt; Papua New Guinea Papua New Guinea 50.34
+#&gt; Solomon Islands   Solomon Islands 65.73
+#&gt; Vanuatu                   Vanuatu 33.67</code></pre>
+</div>
+<div id="recursive-list-updating" class="section level2">
+<h2>Recursive list updating</h2>
+<div id="how-recurse" class="section level3">
+<h3><code>how = "recurse"</code></h3>
+<p>If <code>classes = "list"</code> and <code>how = "recurse"</code>, <code>rrapply()</code> applies the <code>f</code> function to any list element that satisfies the <code>condition</code> argument, but recurses further into any <em>updated</em> list element after application of <code>f</code>. This can be useful to e.g. recursively update the class or other attributes of all elements in a nested list:</p>
+<pre class="r"><code>## recursively remove all list attributes
+rrapply(
+  renewable_oceania,
+  f = \(x) c(x),
+  classes = c(&quot;list&quot;, &quot;ANY&quot;),
+  how = &quot;recurse&quot;
+) |&gt;
+  str(list.len = 3, give.attr = TRUE)
+#&gt; List of 1
+#&gt;  $ Oceania:List of 4
+#&gt;   ..$ Australia and New Zealand:List of 6
+#&gt;   .. ..$ Australia                        : num 9.32
+#&gt;   .. ..$ Christmas Island                 : logi NA
+#&gt;   .. ..$ Cocos (Keeling) Islands          : logi NA
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Melanesia                :List of 5
+#&gt;   .. ..$ Fiji            : num 24.4
+#&gt;   .. ..$ New Caledonia   : num 4.03
+#&gt;   .. ..$ Papua New Guinea: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ Micronesia               :List of 8
+#&gt;   .. ..$ Guam                                : num 3.03
+#&gt;   .. ..$ Kiribati                            : num 45.4
+#&gt;   .. ..$ Marshall Islands                    : num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+</div>
+<div id="how-names" class="section level3">
+<h3><code>how = "names"</code></h3>
+<p>The option <code>how = "names"</code> is a special case of <code>how = "recurse"</code>, where the value of <code>f</code> is used to replace the <em>name</em> of the evaluated list element instead of its <em>content</em> (as with all other <code>how</code> options). By default, <code>how = "names"</code> uses <code>classes = c("list", "ANY")</code> in order to allow updating of all names in the nested list.</p>
+<pre class="r"><code>## recursively replace all names by M49-codes
+rrapply(
+  renewable_oceania,
+  f = \(x) attr(x, &quot;M49-code&quot;),
+  how = &quot;names&quot;
+) |&gt;
+  str(list.len = 3, give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ 009:List of 4
+#&gt;   ..$ 053:List of 6
+#&gt;   .. ..$ 036: num 9.32
+#&gt;   .. ..$ 162: logi NA
+#&gt;   .. ..$ 166: logi NA
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ 054:List of 5
+#&gt;   .. ..$ 242: num 24.4
+#&gt;   .. ..$ 540: num 4.03
+#&gt;   .. ..$ 598: num 50.3
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ 057:List of 8
+#&gt;   .. ..$ 316: num 3.03
+#&gt;   .. ..$ 296: num 45.4
+#&gt;   .. ..$ 584: num 11.8
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]</code></pre>
+</div>
+</div>
+</div>
+<div id="conclusion" class="section level1">
+<h1>Conclusion</h1>
+<p>To conclude, we return to the list recursion exercise in the first section. Using <code>rrapply()</code>, one possible solution is to split the question into two steps as follows:</p>
+<pre class="r"><code>## look up position of Euler (Leonhard)
+euler &lt;- rrapply(
+  students,
+  condition = \(x, .xname) .xname == &quot;Euler&quot; &amp;&amp; attr(x, &quot;given&quot;) == &quot;Leonhard&quot;,
+  f = \(x, .xpos) .xpos,
+  classes = &quot;list&quot;,
+  how = &quot;flatten&quot;
+)[[&quot;Euler&quot;]]
+
+## filter descendants of Euler (Leonhard) and replace missing values by zero
+rrapply(
+  students,
+  condition = \(x, .xpos) identical(.xpos[seq_along(euler)], euler), 
+  f = \(x) replace(x, is.na(x), 0),
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Bernoulli:List of 1
+#&gt;   ..$ Bernoulli:List of 1
+#&gt;   .. ..$ Euler:List of 2
+#&gt;   .. .. ..$ Euler   : num 0
+#&gt;   .. .. ..$ Lagrange:List of 3
+#&gt;   .. .. .. ..$ Fourier: num 73788
+#&gt;   .. .. .. ..$ Plana  : num 0
+#&gt;   .. .. .. ..$ Poisson: num 128235</code></pre>
+<p>Knowing that Johann Euler is a descendant of Leonhard Euler, we can further simplify this into a single function call using the <code>.xparents</code> argument:</p>
+<pre class="r"><code>## filter descendants of Euler (Leonhard) and replace missing values by zero
+rrapply(
+  students,
+  condition = \(x, .xparents) &quot;Euler&quot; %in% .xparents,
+  f = \(x) replace(x, is.na(x), 0),
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Bernoulli:List of 1
+#&gt;   ..$ Bernoulli:List of 1
+#&gt;   .. ..$ Euler:List of 2
+#&gt;   .. .. ..$ Euler   : num 0
+#&gt;   .. .. ..$ Lagrange:List of 3
+#&gt;   .. .. .. ..$ Fourier: num 73788
+#&gt;   .. .. .. ..$ Plana  : num 0
+#&gt;   .. .. .. ..$ Poisson: num 128235</code></pre>
+<p>Or alternatively, we could first update the names of the elements in the nested list to include both first and last names and then prune the list in a second step:</p>
+<pre class="r"><code>## include first names in list element names
+students_fullnames &lt;- rrapply(
+  students, 
+  f = \(x, .xname) paste(attr(x, &quot;given&quot;), .xname),
+  how = &quot;names&quot;
+)
+
+## filter descendants of Euler (Leonhard) and replace missing values by zero
+rrapply(
+  students_fullnames,
+  condition = \(x, .xparents) &quot;Leonhard Euler&quot; %in% .xparents,
+  f = \(x) replace(x, is.na(x), 0),
+  how = &quot;prune&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ Jacob Bernoulli:List of 1
+#&gt;   ..$ Johann Bernoulli:List of 1
+#&gt;   .. ..$ Leonhard Euler:List of 2
+#&gt;   .. .. ..$ Johann Euler   : num 0
+#&gt;   .. .. ..$ Joseph Lagrange:List of 3
+#&gt;   .. .. .. ..$ Jean-Baptiste Fourier: num 73788
+#&gt;   .. .. .. ..$ Giovanni Plana       : num 0
+#&gt;   .. .. .. ..$ Simeon Poisson       : num 128235</code></pre>
+<div id="additional-details" class="section level2">
+<h2>Additional details</h2>
+<p>The latest stable version of the <code>rrapply</code>-package is available on <a href="https://CRAN.R-project.org/package=rrapply">CRAN</a>. Additional details and examples on how to use the <code>rrapply()</code> function can be found at <a href="https://jorischau.github.io/rrapply/" class="uri">https://jorischau.github.io/rrapply/</a> and a quick reference sheet can be downloaded from the github repository at <a href="https://github.com/JorisChau/rrapply/" class="uri">https://github.com/JorisChau/rrapply/</a>.</p>
+</div>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessionInfo()
+#&gt; R version 4.2.0 (2022-04-22)
+#&gt; Platform: x86_64-pc-linux-gnu (64-bit)
+#&gt; Running under: Ubuntu 20.04.4 LTS
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.9.0
+#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.9.0
+#&gt; 
+#&gt; locale:
+#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+#&gt;  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+#&gt;  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+#&gt;  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+#&gt;  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     
+#&gt; 
+#&gt; other attached packages:
+#&gt; [1] rrapply_1.2.5
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;  [1] bookdown_0.27   digest_0.6.29   R6_2.5.1        jsonlite_1.8.0 
+#&gt;  [5] magrittr_2.0.3  evaluate_0.15   blogdown_1.10   stringi_1.7.6  
+#&gt;  [9] rlang_1.0.3     cli_3.3.0       rstudioapi_0.13 jquerylib_0.1.4
+#&gt; [13] bslib_0.3.1     rmarkdown_2.14  tools_4.2.0     stringr_1.4.0  
+#&gt; [17] xfun_0.31       yaml_2.3.5      fastmap_1.1.0   compiler_4.2.0 
+#&gt; [21] htmltools_0.5.2 knitr_1.39      sass_0.4.1</code></pre>
+</div>
