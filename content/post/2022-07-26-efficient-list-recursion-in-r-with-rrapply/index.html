@@ -1,7 +1,7 @@
 ---
 title: 'Efficient list recursion in R with {rrapply}'
 author: Joris Chau
-date: '2022-06-08'
+date: '2022-07-26'
 slug: efficient-list-recursion-in-r-with-rrapply
 categories:
   - R
@@ -14,7 +14,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2022-06-08T08:38:33+02:00'
+lastmod: '2022-07-26T10:00:00+02:00'
 featured: no
 image:
   placement: 1
@@ -29,7 +29,7 @@ projects: []
 <p><img src="sticker.png" alt="sticker" style="float:right; margin-top:0rem; margin-bottom:1rem; padding:0px;" width="100px"/></p>
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>The nested list below shows a small extract from the <a href="https://www.genealogy.math.ndsu.nodak.edu/">Mathematics Genealogy Project</a> highlighting the advisor/student genealogy of several famous mathematicians. The mathematician’s given names are present in the <code>"given"</code> attribute of each list element. The numeric values at the leaf elements are the total number of student descendants according to the website as of June 2022. If no descendants are available there is a missing value present at the leaf element.</p>
+<p>The nested list below shows a small extract from the <a href="https://www.genealogy.math.ndsu.nodak.edu/">Mathematics Genealogy Project</a> highlighting the advisor/student genealogy of several famous mathematicians. The mathematician’s given names are present in the <code>"given"</code> attribute of each list element. The numeric values at the leaf elements are the total number of student descendants according to the website as of June 2022. If no descendants are available there is a missing value present at the leaf node.</p>
 <pre class="r"><code>students &lt;- list(
   Bernoulli = structure(list(
     Bernoulli = structure(list(
@@ -97,12 +97,16 @@ str(filter_desc_euler(students), give.attr = FALSE)
 #&gt;   .. .. .. ..$ Plana  : num 0
 #&gt;   .. .. .. ..$ Poisson: num 128235</code></pre>
 <p>This works, but is hardly the kind of convoluted code we would like to write for such a seemingly simple question. Moreover, this code is not very easy to follow, which can make updating or modifying it quite a time-consuming and error-prone task.</p>
-<p>An alternative approach would be to unnest the list into a more manageable (e.g. rectangular) format or use specialized packages, such as <a href="https://igraph.org/r/">igraph</a> or <a href="https://CRAN.R-project.org/package=data.tree">data.tree</a>, to make pruning or modifying node entries more straightforward. Note that attention must be paid to correctly include the node attributes in the transformed object as the node names themselves are not unique in this example. This is a sensible approach and usually the way to go when cleaning or tidying up the data, but for fast prototyping and data exploration tasks we may want to keep the list in its original format to reduce the number of processing steps and minimize the code complexity. Sometimes it is also required to maintain a nested data structure as this can be for instance the expected input format for some data visualization or data exporting function.</p>
-<p>The recursive function above makes use of base <code>rapply()</code>, a member of the <a href="https://rdrr.io/r/base/lapply.html">apply</a>-family of functions in R, that allows to apply a function recursively to the elements of a nested list and decide how the returned result is structured. Although sometimes useful, the existing <code>rapply()</code> function is often not sufficiently flexible for list recursion tasks in practice, for instance for pruning elements of a nested list (as demonstrated above). In this context, the <code>rrapply()</code> function in the minimal <code>rrapply</code>-package attempts to enhance and update base <code>rapply()</code> to make it more generally applicable for list recursion in the wild. The <code>rrapply()</code> function builds upon R’s native C implementation of<code>rapply()</code> and for this reason requires no other external dependencies.</p>
+<p>An alternative approach would be to unnest the list into a more manageable (e.g. rectangular) format or use specialized packages, such as <a href="https://igraph.org/r/">igraph</a> or <a href="https://CRAN.R-project.org/package=data.tree">data.tree</a>, to make pruning or modifying node entries more straightforward. Note that attention must be paid to correctly include the node attributes in the transformed object as the node names themselves are not unique in this example. This is a sensible approach and usually the way to go when cleaning or tidying up the data, but for fast prototyping and data exploration tasks we may want to keep the list in its original format to reduce the number of processing steps and minimize the code complexity. Another reason to maintain a nested data structure may be that we wish to use a certain data visualization or data exporting function and the function expects its input in a nested format.</p>
+<p>The recursive function above makes use of base <code>rapply()</code>, a member of the <a href="https://rdrr.io/r/base/lapply.html">apply</a>-family of functions in R, that allows to apply a function recursively to the elements of a nested list and decide how the returned result is structured. Although sometimes useful, the <code>rapply()</code> function is not sufficiently flexible for many list recursion tasks in practice, as also demonstrated in the above example. In this context, the <code>rrapply()</code> function in the minimal <code>rrapply</code>-package attempts to revisit and extend base <code>rapply()</code> to make it more generally applicable for list recursion in the wild. The <code>rrapply()</code> function builds upon R’s native C implementation of<code>rapply()</code> and for this reason requires no other external dependencies.</p>
 </div>
 <div id="when-to-use-rrapply" class="section level1">
 <h1>When to use <code>rrapply()</code></h1>
-<p>For demonstrational purposes, we make use of the two datasets <code>renewable_energy_by_country</code> and <code>pokedex</code> included in the <code>rrapply</code>-package. <code>renewable_energy_by_country</code> is a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016. The data is publicly available at the <a href="https://unstats-undesa.opendata.arcgis.com/datasets/">United Nations Open SDG Data Hub</a>. The 249 countries and areas are structured based on their geographical locations according to the <a href="https://unstats.un.org/unsd/methodology/m49/">United Nations M49 standard</a>. The numeric values listed for each country are percentages, if no data is available the value of the country is <code>NA</code>. <code>pokedex</code> is a nested list containing various property values for each of the 151 original Pokémon available (in .json) from <a href="https://github.com/Biuni/PokemonGO-Pokedex" class="uri">https://github.com/Biuni/PokemonGO-Pokedex</a>.</p>
+<p>Below, we make use of the two datasets <code>renewable_energy_by_country</code> and <code>pokedex</code> included in the <code>rrapply</code>-package.</p>
+<ul>
+<li><p><code>renewable_energy_by_country</code> is a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016. The data is publicly available at the <a href="https://unstats-undesa.opendata.arcgis.com/datasets/">United Nations Open SDG Data Hub</a>. The 249 countries and areas are structured based on their geographical locations according to the <a href="https://unstats.un.org/unsd/methodology/m49/">United Nations M49 standard</a>. The numeric values listed for each country are percentages, if no data is available the value of the country is <code>NA</code>.</p></li>
+<li><p><code>pokedex</code> is a nested list containing various property values for each of the 151 original Pokémon available (in .json) from <a href="https://github.com/Biuni/PokemonGO-Pokedex" class="uri">https://github.com/Biuni/PokemonGO-Pokedex</a>.</p></li>
+</ul>
 <pre class="r"><code>library(rrapply)
 data(&quot;renewable_energy_by_country&quot;)</code></pre>
 <p>For convenience, we subset only the values for countries and areas in Oceania from <code>renewable_energy_by_country</code>,</p>
@@ -182,7 +186,7 @@ rrapply(
   options = list(namesep = &quot;.&quot;, simplify = FALSE)
 ) |&gt;
   str(list.len = 10, give.attr = FALSE)
-#&gt; List of 29
+#&gt; List of 22
 #&gt;  $ Oceania.Australia and New Zealand.Australia        : num 9.32
 #&gt;  $ Oceania.Australia and New Zealand.New Zealand      : num 32.8
 #&gt;  $ Oceania.Melanesia.Fiji                             : num 24.4
@@ -880,7 +884,7 @@ rrapply(
 <div id="session-info" class="section level1">
 <h1>Session Info</h1>
 <pre class="r"><code>sessionInfo()
-#&gt; R version 4.2.0 (2022-04-22)
+#&gt; R version 4.2.1 (2022-06-23)
 #&gt; Platform: x86_64-pc-linux-gnu (64-bit)
 #&gt; Running under: Ubuntu 20.04.4 LTS
 #&gt; 
@@ -904,9 +908,9 @@ rrapply(
 #&gt; 
 #&gt; loaded via a namespace (and not attached):
 #&gt;  [1] bookdown_0.27   digest_0.6.29   R6_2.5.1        jsonlite_1.8.0 
-#&gt;  [5] magrittr_2.0.3  evaluate_0.15   blogdown_1.10   stringi_1.7.6  
-#&gt;  [9] rlang_1.0.3     cli_3.3.0       rstudioapi_0.13 jquerylib_0.1.4
-#&gt; [13] bslib_0.3.1     rmarkdown_2.14  tools_4.2.0     stringr_1.4.0  
-#&gt; [17] xfun_0.31       yaml_2.3.5      fastmap_1.1.0   compiler_4.2.0 
+#&gt;  [5] magrittr_2.0.3  evaluate_0.15   blogdown_1.10   stringi_1.7.8  
+#&gt;  [9] rlang_1.0.4     cli_3.3.0       rstudioapi_0.13 jquerylib_0.1.4
+#&gt; [13] bslib_0.3.1     rmarkdown_2.14  tools_4.2.1     stringr_1.4.0  
+#&gt; [17] xfun_0.31       yaml_2.3.5      fastmap_1.1.0   compiler_4.2.1 
 #&gt; [21] htmltools_0.5.2 knitr_1.39      sass_0.4.1</code></pre>
 </div>

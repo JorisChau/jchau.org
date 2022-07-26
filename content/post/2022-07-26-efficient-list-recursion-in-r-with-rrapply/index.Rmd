@@ -1,7 +1,7 @@
 ---
 title: 'Efficient list recursion in R with {rrapply}'
 author: Joris Chau
-date: '2022-06-08'
+date: '2022-07-26'
 slug: efficient-list-recursion-in-r-with-rrapply
 categories:
   - R
@@ -14,7 +14,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2022-06-08T08:38:33+02:00'
+lastmod: '2022-07-26T10:00:00+02:00'
 featured: no
 image:
   placement: 1
@@ -34,7 +34,7 @@ htmltools::img(src = "sticker.png", alt = "sticker", style = "float:right; margi
 
 # Introduction
 
-The nested list below shows a small extract from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) highlighting the advisor/student genealogy of several famous mathematicians. The mathematician's given names are present in the `"given"` attribute of each list element. The numeric values at the leaf elements are the total number of student descendants according to the website as of June 2022. If no descendants are available there is a missing value present at the leaf element.
+The nested list below shows a small extract from the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) highlighting the advisor/student genealogy of several famous mathematicians. The mathematician's given names are present in the `"given"` attribute of each list element. The numeric values at the leaf elements are the total number of student descendants according to the website as of June 2022. If no descendants are available there is a missing value present at the leaf node.
 
 ```{r}
 students <- list(
@@ -91,13 +91,17 @@ str(filter_desc_euler(students), give.attr = FALSE)
 
 This works, but is hardly the kind of convoluted code we would like to write for such a seemingly simple question. Moreover, this code is not very easy to follow, which can make updating or modifying it quite a time-consuming and error-prone task.
 
-An alternative approach would be to unnest the list into a more manageable (e.g. rectangular) format or use specialized packages, such as [igraph](https://igraph.org/r/) or [data.tree](https://CRAN.R-project.org/package=data.tree), to make pruning or modifying node entries more straightforward. Note that attention must be paid to correctly include the node attributes in the transformed object as the node names themselves are not unique in this example. This is a sensible approach and usually the way to go when cleaning or tidying up the data, but for fast prototyping and data exploration tasks we may want to keep the list in its original format to reduce the number of processing steps and minimize the code complexity. Sometimes it is also required to maintain a nested data structure as this can be for instance the expected input format for some data visualization or data exporting function.
+An alternative approach would be to unnest the list into a more manageable (e.g. rectangular) format or use specialized packages, such as [igraph](https://igraph.org/r/) or [data.tree](https://CRAN.R-project.org/package=data.tree), to make pruning or modifying node entries more straightforward. Note that attention must be paid to correctly include the node attributes in the transformed object as the node names themselves are not unique in this example. This is a sensible approach and usually the way to go when cleaning or tidying up the data, but for fast prototyping and data exploration tasks we may want to keep the list in its original format to reduce the number of processing steps and minimize the code complexity. Another reason to maintain a nested data structure may be that we wish to use a certain data visualization or data exporting function and the function expects its input in a nested format.
 
-The recursive function above makes use of base `rapply()`, a member of the [apply](https://rdrr.io/r/base/lapply.html)-family of functions in R, that allows to apply a function recursively to the elements of a nested list and decide how the returned result is structured. Although sometimes useful, the existing `rapply()` function is often not sufficiently flexible for list recursion tasks in practice, for instance for pruning elements of a nested list (as demonstrated above). In this context, the `rrapply()` function in the minimal `rrapply`-package attempts to enhance and update base `rapply()` to make it more generally applicable for list recursion in the wild. The `rrapply()` function builds upon R's native C implementation of`rapply()` and for this reason requires no other external dependencies. 
+The recursive function above makes use of base `rapply()`, a member of the [apply](https://rdrr.io/r/base/lapply.html)-family of functions in R, that allows to apply a function recursively to the elements of a nested list and decide how the returned result is structured. Although sometimes useful, the `rapply()` function is not sufficiently flexible for many list recursion tasks in practice, as also demonstrated in the above example. In this context, the `rrapply()` function in the minimal `rrapply`-package attempts to revisit and extend base `rapply()` to make it more generally applicable for list recursion in the wild. The `rrapply()` function builds upon R's native C implementation of`rapply()` and for this reason requires no other external dependencies. 
 
 # When to use `rrapply()`
 
-For demonstrational purposes, we make use of the two datasets `renewable_energy_by_country` and `pokedex` included in the `rrapply`-package. `renewable_energy_by_country` is a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016. The data is publicly available at the [United Nations Open SDG Data Hub](https://unstats-undesa.opendata.arcgis.com/datasets/). The 249 countries and areas are structured based on their geographical locations according to the [United Nations M49 standard](https://unstats.un.org/unsd/methodology/m49/). The numeric values listed for each country are percentages, if no data is available the value of the country is `NA`. `pokedex` is a nested list containing various property values for each of the 151 original Pok&#233;mon available (in .json) from https://github.com/Biuni/PokemonGO-Pokedex.
+Below, we make use of the two datasets `renewable_energy_by_country` and `pokedex` included in the `rrapply`-package.
+
+* `renewable_energy_by_country` is a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016. The data is publicly available at the [United Nations Open SDG Data Hub](https://unstats-undesa.opendata.arcgis.com/datasets/). The 249 countries and areas are structured based on their geographical locations according to the [United Nations M49 standard](https://unstats.un.org/unsd/methodology/m49/). The numeric values listed for each country are percentages, if no data is available the value of the country is `NA`. 
+
+* `pokedex` is a nested list containing various property values for each of the 151 original Pok&#233;mon available (in .json) from https://github.com/Biuni/PokemonGO-Pokedex.
 
 ```{r}
 library(rrapply)
