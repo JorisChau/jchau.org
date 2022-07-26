@@ -14,7 +14,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2022-07-26T10:00:00+02:00'
+lastmod: '2022-07-26T00:00:00+02:00'
 featured: no
 image:
   placement: 1
