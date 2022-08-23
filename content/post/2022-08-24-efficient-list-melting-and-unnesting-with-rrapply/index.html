@@ -1,7 +1,7 @@
 ---
 title: 'Efficient list melting and unnesting with {rrapply}'
 author: Joris Chau
-date: '2022-08-24'
+date: '2022-08-23'
 slug: efficient-list-melting-and-unnesting-with-rrapply
 categories:
   - R
@@ -17,7 +17,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2022-08-24T08:00:00+02:00'
+lastmod: '2022-08-23T08:00:00+02:00'
 featured: no
 image:
   placement: 1
@@ -119,8 +119,8 @@ bench::mark(
 #&gt; # A tibble: 2 × 6
 #&gt;   expression                                       min   median `itr/sec` mem_alloc `gc/sec`
 #&gt;   &lt;bch:expr&gt;                                  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
-#&gt; 1 rrapply(renewable_energy_by_country)          15.8µs   17.7µs   51824.         0B     20.7
-#&gt; 2 reshape2::melt(renewable_energy_by_country)   57.5ms   58.4ms      16.4    73.1KB     32.9</code></pre>
+#&gt; 1 rrapply(renewable_energy_by_country)          13.6µs   17.5µs   56237.         0B     22.5
+#&gt; 2 reshape2::melt(renewable_energy_by_country)   49.4ms   50.5ms      19.7    73.1KB     29.6</code></pre>
 <p>For a medium-sized list as used in this example, the computation time of <code>reshape2::melt()</code> is not a bottleneck for practical usage. However, the computational effort quickly increases when melting larger or more deeply nested lists:</p>
 <pre class="r"><code>## helper function to generate large nested list
 new_list &lt;- function(n, d) {
@@ -166,7 +166,7 @@ str(shallow_list, list.len = 2)
 ## benchmark timing with rrapply
 system.time(shallow_melt &lt;- rrapply(shallow_list, how = &quot;melt&quot;)) 
 #&gt;    user  system elapsed 
-#&gt;   1.116   0.032   1.148
+#&gt;   1.016   0.028   1.044
 head(shallow_melt)
 #&gt;   L1 L2 L3     value
 #&gt; 1  1  1  1 0.2655087
@@ -179,7 +179,7 @@ head(shallow_melt)
 ## benchmark timing with reshape2::melt
 system.time(shallow_melt_reshape2 &lt;- reshape2::melt(shallow_list))
 #&gt;    user  system elapsed 
-#&gt; 194.197   0.088 194.322
+#&gt; 172.682   0.064 172.894
 head(shallow_melt_reshape2)
 #&gt;       value L3 L2 L1
 #&gt; 1 0.2655087  1  1  1
@@ -194,7 +194,7 @@ deep_list &lt;- new_list(n = 2, d = 18)
 ## benchmark timing with rrapply
 system.time(deep_melt &lt;- rrapply(deep_list, how = &quot;melt&quot;)) 
 #&gt;    user  system elapsed 
-#&gt;   0.701   0.012   0.713
+#&gt;   0.807   0.012   0.820
 head(deep_melt)
 #&gt;   L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 L12 L13 L14 L15 L16 L17 L18      value
 #&gt; 1  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   1   1   1 0.14011775
@@ -207,7 +207,7 @@ head(deep_melt)
 ## benchmark timing with reshape2::melt
 system.time(deep_melt_reshape2 &lt;- reshape2::melt(deep_list))
 #&gt;    user  system elapsed 
-#&gt; 140.280   0.036 140.369
+#&gt; 134.310   0.052 134.529
 head(deep_melt_reshape2)
 #&gt;        value L18 L17 L16 L15 L14 L13 L12 L11 L10 L9 L8 L7 L6 L5 L4 L3 L2 L1
 #&gt; 1 0.14011775   1   1   1   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
@@ -371,7 +371,7 @@ system.time({
   rrapply(pokedex_large, how = &quot;bind&quot;)
 })
 #&gt;    user  system elapsed 
-#&gt;   2.181   0.024   2.211
+#&gt;   2.365   0.048   2.413
 
 ## unnest first layers prev_evolution and next_evolution
 system.time({
@@ -381,7 +381,7 @@ system.time({
     unnest_wider(prev_evolution, names_sep = &quot;.&quot;) 
 })
 #&gt;    user  system elapsed 
-#&gt; 120.503   0.284 120.876</code></pre>
+#&gt; 135.363   0.288 135.846</code></pre>
 <p><strong>Remark</strong>: in the chained calls to <code>unnest_wider()</code> above, we only unnest the first layer of the <code>next_evolution</code> and <code>prev_evolution</code> list-columns, and not any of the resulting children list-columns, which would only further increase computation time.</p>
 <p>To extract and unnest sublists at deeper levels of nesting in the list, such as <code>next_evolution</code>, we manually set the <code>coldepth</code> parameter in the <code>options</code> argument, as also demonstrated above:</p>
 <pre class="r"><code>system.time({
@@ -393,7 +393,7 @@ system.time({
   )
 })
 #&gt;    user  system elapsed 
-#&gt;   1.593   0.000   1.594
+#&gt;   2.699   0.020   2.765
 head(ev1)
 #&gt;        L1 L2             L3 L4 num       name
 #&gt; 1 pokemon  1 next_evolution  1 002    Ivysaur
@@ -411,7 +411,7 @@ head(ev1)
     select(id, next_evolution_num, next_evolution_name)
 })
 #&gt;    user  system elapsed 
-#&gt;  92.056   0.112  92.171
+#&gt;  87.302   0.088  87.744
 head(ev2)
 #&gt; # A tibble: 6 × 3
 #&gt;      id next_evolution_num next_evolution_name
@@ -434,7 +434,7 @@ head(ev2)
     select(id, name.1, name.2, name.3)
 })
 #&gt;    user  system elapsed 
-#&gt;  42.503   0.000  42.505
+#&gt;  41.187   0.100  41.343
 head(ev3)
 #&gt; # A tibble: 6 × 4
 #&gt;      id name.1     name.2    name.3
@@ -462,7 +462,7 @@ head(ev3)
   )
 })
 #&gt;    user  system elapsed 
-#&gt;   2.539   0.000   2.540
+#&gt;   2.223   0.000   2.224
 head(ev5)
 #&gt;   L2     name.1    name.2 name.3
 #&gt; 1  1    Ivysaur  Venusaur   &lt;NA&gt;
@@ -760,13 +760,13 @@ identical(renewable_energy_melt_west_eu, renewable_energy_remelt)
 ##  benchmark timing with rrapply
 system.time(deep_unmelt &lt;- rrapply(deep_melt, how = &quot;unmelt&quot;)) 
 #&gt;    user  system elapsed 
-#&gt;   0.152   0.000   0.152
+#&gt;   0.139   0.000   0.139
 
 ## benchmark timing with relist
 deep_unlist &lt;- unlist(as.relistable(deep_list))
 system.time(deep_relist &lt;- relist(deep_unlist))
 #&gt;    user  system elapsed 
-#&gt;   3.229   0.000   3.230</code></pre>
+#&gt;    3.13    0.00    3.13</code></pre>
 <pre class="r"><code>## large shallow list (10^6 elements)
 ## benchmark timing with rrapply 
 system.time(shallow_unmelt &lt;- rrapply(shallow_melt, how = &quot;unmelt&quot;)) 
@@ -777,7 +777,7 @@ system.time(shallow_unmelt &lt;- rrapply(shallow_melt, how = &quot;unmelt&quot;)
 shallow_unlist &lt;- unlist(as.relistable(shallow_list))
 system.time(shallow_relist &lt;- relist(shallow_unlist))
 #&gt;    user  system elapsed 
-#&gt;   6.332   0.000   6.358</code></pre>
+#&gt;   5.154   0.000   5.155</code></pre>
 <p><strong>Note</strong>: the unmelted lists are not exactly identical to the original nested lists, since <code>how = "unmelt"</code> uses the placeholder names <code>1</code>, <code>2</code>, <code>3</code>, etc. in the melted data.frames to name the nodes in the newly constructed lists, whereas the name attributes in the original lists are all empty. By removing all names from the unmelted lists, they become identical to their original counterparts:</p>
 <pre class="r"><code>## remove all list names
 deep_unmelt_unnamed &lt;- rrapply(
