@@ -1,0 +1,843 @@
+---
+title: 'Efficient list melting and unnesting with {rrapply}'
+author: Joris Chau
+date: '2022-08-24'
+slug: efficient-list-melting-and-unnesting-with-rrapply
+categories:
+  - R
+  - rrapply
+tags:
+  - rrapply
+  - R
+  - list
+  - recursion
+  - nested
+  - reshape2
+  - tidyr
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2022-08-24T08:00:00+02:00'
+featured: no
+image:
+  placement: 1
+  caption: ''
+  focal_point: ''
+  preview_only: yes
+projects: []
+---
+
+
+
+<p><img src="sticker.png" alt="sticker" style="float:right; margin-top:0rem; margin-bottom:1rem; padding:0px;" width="100px"/></p>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The <a href="/2022/07/26/efficient-list-recursion-in-r-with-rrapply">previous post</a> showcases the <code>rrapply()</code> function in the minimal <code>rrapply</code>-package as a revised and extended version of base <code>rapply()</code> in the context of nested list recursion in R. For quick data exploration of a nested list it can make sense to keep the list in its original nested format to reduce the number of processing steps and minimize code complexity. As part of a more elaborate data analysis, if there is no specific reason to keep the nested data structure, it is often more practical to transform the nested list into a more convenient rectangular format and work with the unnested object (e.g. a data.frame) instead. In this follow-up post, we review the available (<code>how</code>) options in <code>rrapply()</code> to unnest or melt nested lists into a rectangular format in more detail and highlight the similarities and differences with respect to several common alternatives in R.</p>
+</div>
+<div id="nested-list-to-data.frame" class="section level1">
+<h1>Nested list to data.frame</h1>
+<div id="melt-to-long-data.frame" class="section level2">
+<h2>Melt to long data.frame</h2>
+<p>The option <code>how = "melt"</code> in <code>rrapply()</code> unnests a nested list to a <em>long</em> or melted data.frame similar in format to the retired <code>reshape2::melt()</code> function applied to a nested list. The rows of the melted data.frame contain the individual node paths of the elements in the nested list after pruning (based on the <code>condition</code> and/or <code>classes</code> arguments). The <code>"value"</code> column is a vector- or list-column containing the values of the leaf elements identical to the object returned by <code>how = "flatten"</code>.</p>
+<p>To demonstrate, we use the <code>renewable_energy_by_country</code> dataset included in the <code>rrapply</code>-package, a nested list containing the renewable energy shares per country (% of total energy consumption) in 2016<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. The 249 countries and areas are structured based on their geographical locations according to the <a href="https://unstats.un.org/unsd/methodology/m49/">United Nations M49 standard</a>. The numeric values listed for each country are percentages, if no data is available the value of the country is <code>NA</code>.</p>
+<pre class="r"><code>library(rrapply)
+
+## melt all data to long data.frame
+rrapply(
+  renewable_energy_by_country, 
+  how = &quot;melt&quot;
+) |&gt;
+  head(n = 10)
+#&gt;       L1     L2                 L3             L4                             L5 value
+#&gt; 1  World Africa    Northern Africa        Algeria                           &lt;NA&gt;  0.08
+#&gt; 2  World Africa    Northern Africa          Egypt                           &lt;NA&gt;  5.69
+#&gt; 3  World Africa    Northern Africa          Libya                           &lt;NA&gt;  1.64
+#&gt; 4  World Africa    Northern Africa        Morocco                           &lt;NA&gt; 11.02
+#&gt; 5  World Africa    Northern Africa          Sudan                           &lt;NA&gt; 61.64
+#&gt; 6  World Africa    Northern Africa        Tunisia                           &lt;NA&gt; 12.47
+#&gt; 7  World Africa    Northern Africa Western Sahara                           &lt;NA&gt;    NA
+#&gt; 8  World Africa Sub-Saharan Africa Eastern Africa British Indian Ocean Territory    NA
+#&gt; 9  World Africa Sub-Saharan Africa Eastern Africa                        Burundi 89.22
+#&gt; 10 World Africa Sub-Saharan Africa Eastern Africa                        Comoros 41.92</code></pre>
+<pre class="r"><code>## drop logical NA&#39;s and melt to data.frame
+rrapply(
+  renewable_energy_by_country,
+  classes = &quot;numeric&quot;,
+  how = &quot;melt&quot;
+) |&gt;
+  head(n = 10)
+#&gt;       L1     L2                 L3             L4       L5 value
+#&gt; 1  World Africa    Northern Africa        Algeria     &lt;NA&gt;  0.08
+#&gt; 2  World Africa    Northern Africa          Egypt     &lt;NA&gt;  5.69
+#&gt; 3  World Africa    Northern Africa          Libya     &lt;NA&gt;  1.64
+#&gt; 4  World Africa    Northern Africa        Morocco     &lt;NA&gt; 11.02
+#&gt; 5  World Africa    Northern Africa          Sudan     &lt;NA&gt; 61.64
+#&gt; 6  World Africa    Northern Africa        Tunisia     &lt;NA&gt; 12.47
+#&gt; 7  World Africa Sub-Saharan Africa Eastern Africa  Burundi 89.22
+#&gt; 8  World Africa Sub-Saharan Africa Eastern Africa  Comoros 41.92
+#&gt; 9  World Africa Sub-Saharan Africa Eastern Africa Djibouti 28.50
+#&gt; 10 World Africa Sub-Saharan Africa Eastern Africa  Eritrea 80.14</code></pre>
+<pre class="r"><code>## apply condition and melt to data.frame
+rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xparents) &quot;Western Europe&quot; %in% .xparents,
+  how = &quot;melt&quot;
+) |&gt;
+  head(n = 10)
+#&gt;      L1     L2             L3            L4 value
+#&gt; 1 World Europe Western Europe       Austria 34.67
+#&gt; 2 World Europe Western Europe       Belgium  9.14
+#&gt; 3 World Europe Western Europe        France 14.74
+#&gt; 4 World Europe Western Europe       Germany 14.17
+#&gt; 5 World Europe Western Europe Liechtenstein 62.93
+#&gt; 6 World Europe Western Europe    Luxembourg 13.54
+#&gt; 7 World Europe Western Europe        Monaco    NA
+#&gt; 8 World Europe Western Europe   Netherlands  5.78
+#&gt; 9 World Europe Western Europe   Switzerland 25.49</code></pre>
+<p>As shown in the above examples, in comparison to <code>reshape2::melt()</code>, <code>rrapply()</code> allows to filter or transform list elements before melting the nested list through the <code>f</code>, <code>classes</code> and <code>condition</code> arguments<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>. More importantly, <code>rrapply()</code> is optimized specifically for handling nested lists, whereas <code>reshape2::melt()</code> was aimed primarily at melting data.frames before being superseded by <code>tidyr::gather()</code> and more recently <code>tidyr::pivot_longer()</code>. For this reason, <code>reshape2::melt()</code> can be quite slow when applied to large nested lists:</p>
+<pre class="r"><code>## melt to long data.frame (reshape2)
+reshape2::melt(renewable_energy_by_country) |&gt;
+  head(10)
+#&gt;    value             L4                             L5                 L3     L2    L1
+#&gt; 1   0.08        Algeria                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 2   5.69          Egypt                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 3   1.64          Libya                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 4  11.02        Morocco                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 5  61.64          Sudan                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 6  12.47        Tunisia                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 7     NA Western Sahara                           &lt;NA&gt;    Northern Africa Africa World
+#&gt; 8     NA Eastern Africa British Indian Ocean Territory Sub-Saharan Africa Africa World
+#&gt; 9  89.22 Eastern Africa                        Burundi Sub-Saharan Africa Africa World
+#&gt; 10 41.92 Eastern Africa                        Comoros Sub-Saharan Africa Africa World
+
+## computation times
+bench::mark(
+  rrapply(renewable_energy_by_country),
+  reshape2::melt(renewable_energy_by_country),
+  check = FALSE
+)
+#&gt; # A tibble: 2 × 6
+#&gt;   expression                                       min   median `itr/sec` mem_alloc `gc/sec`
+#&gt;   &lt;bch:expr&gt;                                  &lt;bch:tm&gt; &lt;bch:tm&gt;     &lt;dbl&gt; &lt;bch:byt&gt;    &lt;dbl&gt;
+#&gt; 1 rrapply(renewable_energy_by_country)          15.8µs   17.7µs   51824.         0B     20.7
+#&gt; 2 reshape2::melt(renewable_energy_by_country)   57.5ms   58.4ms      16.4    73.1KB     32.9</code></pre>
+<p>For a medium-sized list as used in this example, the computation time of <code>reshape2::melt()</code> is not a bottleneck for practical usage. However, the computational effort quickly increases when melting larger or more deeply nested lists:</p>
+<pre class="r"><code>## helper function to generate large nested list
+new_list &lt;- function(n, d) {
+  v &lt;- vector(mode = &quot;list&quot;, length = n)
+  rrapply(
+    object = v,
+    classes = c(&quot;list&quot;, &quot;NULL&quot;),
+    condition = \(x, .xpos) length(.xpos) &lt;= d,
+    f = \(x, .xpos) if(length(.xpos) &lt; d) v else runif(1),
+    how = &quot;recurse&quot;
+  )
+}
+
+## random seed
+set.seed(1)
+
+## generate large shallow list (10^6 elements)
+shallow_list &lt;- new_list(n = 100, d = 3)
+str(shallow_list, list.len = 2)
+#&gt; List of 100
+#&gt;  $ :List of 100
+#&gt;   ..$ :List of 100
+#&gt;   .. ..$ : num 0.266
+#&gt;   .. ..$ : num 0.372
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 100
+#&gt;   .. ..$ : num 0.655
+#&gt;   .. ..$ : num 0.353
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 100
+#&gt;   ..$ :List of 100
+#&gt;   .. ..$ : num 0.0647
+#&gt;   .. ..$ : num 0.677
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 100
+#&gt;   .. ..$ : num 0.266
+#&gt;   .. ..$ : num 0.66
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+#&gt;   [list output truncated]
+
+## benchmark timing with rrapply
+system.time(shallow_melt &lt;- rrapply(shallow_list, how = &quot;melt&quot;)) 
+#&gt;    user  system elapsed 
+#&gt;   1.116   0.032   1.148
+head(shallow_melt)
+#&gt;   L1 L2 L3     value
+#&gt; 1  1  1  1 0.2655087
+#&gt; 2  1  1  2 0.3721239
+#&gt; 3  1  1  3 0.5728534
+#&gt; 4  1  1  4 0.9082078
+#&gt; 5  1  1  5 0.2016819
+#&gt; 6  1  1  6 0.8983897
+
+## benchmark timing with reshape2::melt
+system.time(shallow_melt_reshape2 &lt;- reshape2::melt(shallow_list))
+#&gt;    user  system elapsed 
+#&gt; 194.197   0.088 194.322
+head(shallow_melt_reshape2)
+#&gt;       value L3 L2 L1
+#&gt; 1 0.2655087  1  1  1
+#&gt; 2 0.3721239  2  1  1
+#&gt; 3 0.5728534  3  1  1
+#&gt; 4 0.9082078  4  1  1
+#&gt; 5 0.2016819  5  1  1
+#&gt; 6 0.8983897  6  1  1</code></pre>
+<pre class="r"><code>## generate large deeply nested list (2^18 elements)
+deep_list &lt;- new_list(n = 2, d = 18)
+
+## benchmark timing with rrapply
+system.time(deep_melt &lt;- rrapply(deep_list, how = &quot;melt&quot;)) 
+#&gt;    user  system elapsed 
+#&gt;   0.701   0.012   0.713
+head(deep_melt)
+#&gt;   L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 L12 L13 L14 L15 L16 L17 L18      value
+#&gt; 1  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   1   1   1 0.14011775
+#&gt; 2  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   1   1   2 0.69562066
+#&gt; 3  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   1   2   1 0.72888445
+#&gt; 4  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   1   2   2 0.09164734
+#&gt; 5  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   2   1   1 0.06661200
+#&gt; 6  1  1  1  1  1  1  1  1  1   1   1   1   1   1   1   2   1   2 0.61285721
+
+## benchmark timing with reshape2::melt
+system.time(deep_melt_reshape2 &lt;- reshape2::melt(deep_list))
+#&gt;    user  system elapsed 
+#&gt; 140.280   0.036 140.369
+head(deep_melt_reshape2)
+#&gt;        value L18 L17 L16 L15 L14 L13 L12 L11 L10 L9 L8 L7 L6 L5 L4 L3 L2 L1
+#&gt; 1 0.14011775   1   1   1   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
+#&gt; 2 0.69562066   2   1   1   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
+#&gt; 3 0.72888445   1   2   1   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
+#&gt; 4 0.09164734   2   2   1   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
+#&gt; 5 0.06661200   1   1   2   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1
+#&gt; 6 0.61285721   2   1   2   1   1   1   1   1   1  1  1  1  1  1  1  1  1  1</code></pre>
+<p>Although unlikely to encounter such large or deeply nested lists in practice, these artificial examples serve to illustrate that <code>reshape2::melt()</code> is not particularly efficient in unnesting large nested lists to data.frames.</p>
+</div>
+<div id="bind-to-wide-data.frame" class="section level2">
+<h2>Bind to wide data.frame</h2>
+<p>The option <code>how = "bind"</code> unnests a nested list to a <em>wide</em> data.frame and is used to unnest nested lists containing repeated entries of the same variables. To illustrate, we consider the <code>pokedex</code> dataset included in the <code>rrapply</code>-package, a nested list containing various property values for each of the 151 original Pokémon available (in .json) from <a href="https://github.com/Biuni/PokemonGO-Pokedex" class="uri">https://github.com/Biuni/PokemonGO-Pokedex</a>.</p>
+<pre class="r"><code>## all 151 Pokemon
+str(pokedex, list.len = 3)
+#&gt; List of 1
+#&gt;  $ pokemon:List of 151
+#&gt;   ..$ :List of 16
+#&gt;   .. ..$ id            : int 1
+#&gt;   .. ..$ num           : chr &quot;001&quot;
+#&gt;   .. ..$ name          : chr &quot;Bulbasaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 17
+#&gt;   .. ..$ id            : int 2
+#&gt;   .. ..$ num           : chr &quot;002&quot;
+#&gt;   .. ..$ name          : chr &quot;Ivysaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 15
+#&gt;   .. ..$ id            : int 3
+#&gt;   .. ..$ num           : chr &quot;003&quot;
+#&gt;   .. ..$ name          : chr &quot;Venusaur&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+
+## single Pokemon entry
+str(pokedex[[&quot;pokemon&quot;]][[1]])
+#&gt; List of 16
+#&gt;  $ id            : int 1
+#&gt;  $ num           : chr &quot;001&quot;
+#&gt;  $ name          : chr &quot;Bulbasaur&quot;
+#&gt;  $ img           : chr &quot;http://www.serebii.net/pokemongo/pokemon/001.png&quot;
+#&gt;  $ type          : chr [1:2] &quot;Grass&quot; &quot;Poison&quot;
+#&gt;  $ height        : chr &quot;0.71 m&quot;
+#&gt;  $ weight        : chr &quot;6.9 kg&quot;
+#&gt;  $ candy         : chr &quot;Bulbasaur Candy&quot;
+#&gt;  $ candy_count   : int 25
+#&gt;  $ egg           : chr &quot;2 km&quot;
+#&gt;  $ spawn_chance  : num 0.69
+#&gt;  $ avg_spawns    : int 69
+#&gt;  $ spawn_time    : chr &quot;20:00&quot;
+#&gt;  $ multipliers   : num 1.58
+#&gt;  $ weaknesses    : chr [1:4] &quot;Fire&quot; &quot;Ice&quot; &quot;Flying&quot; &quot;Psychic&quot;
+#&gt;  $ next_evolution:List of 2
+#&gt;   ..$ :List of 2
+#&gt;   .. ..$ num : chr &quot;002&quot;
+#&gt;   .. ..$ name: chr &quot;Ivysaur&quot;
+#&gt;   ..$ :List of 2
+#&gt;   .. ..$ num : chr &quot;003&quot;
+#&gt;   .. ..$ name: chr &quot;Venusaur&quot;</code></pre>
+<p>Calling <code>rrapply()</code> with <code>how = "bind</code> expands each Pokémon sublist as a single row in a wide data.frame. The 151 rows are stacked and aligned by matching variable names, with missing entries replaced by <code>NA</code>’s (similar to <code>data.table::rbindlist(..., fill = TRUE)</code>). Note that any nested variables, such as <code>next_evolution</code> and <code>prev_evolution</code>, are unnested as wide as possible into individual data.frame columns similar to repeated application of <code>tidyr::unnest_wider()</code> to a data.frame with nested list-columns.</p>
+<pre class="r"><code>rrapply(pokedex, how = &quot;bind&quot;)[, 1:9] |&gt;
+  head()
+#&gt;   id num       name                                              img          type height   weight            candy candy_count
+#&gt; 1  1 001  Bulbasaur http://www.serebii.net/pokemongo/pokemon/001.png Grass, Poison 0.71 m   6.9 kg  Bulbasaur Candy          25
+#&gt; 2  2 002    Ivysaur http://www.serebii.net/pokemongo/pokemon/002.png Grass, Poison 0.99 m  13.0 kg  Bulbasaur Candy         100
+#&gt; 3  3 003   Venusaur http://www.serebii.net/pokemongo/pokemon/003.png Grass, Poison 2.01 m 100.0 kg  Bulbasaur Candy          NA
+#&gt; 4  4 004 Charmander http://www.serebii.net/pokemongo/pokemon/004.png          Fire 0.61 m   8.5 kg Charmander Candy          25
+#&gt; 5  5 005 Charmeleon http://www.serebii.net/pokemongo/pokemon/005.png          Fire 1.09 m  19.0 kg Charmander Candy         100
+#&gt; 6  6 006  Charizard http://www.serebii.net/pokemongo/pokemon/006.png  Fire, Flying 1.70 m  90.5 kg Charmander Candy          NA</code></pre>
+<p>By default, the list layer containing the repeated observations is identified by the minimal depth detected across leaf elements. This option can be overridden by the <code>coldepth</code> parameter in the <code>options</code> argument, which can be useful to unnest nested sublists, such as <code>next_evolution</code> or <code>prev_evolution</code>. In addition, setting <code>namecols = TRUE</code> in the <code>options</code> argument includes the parent list names associated to each row in the wide data.frame as individual columns <code>L1</code>, <code>L2</code>, etc.</p>
+<pre class="r"><code>## bind prev/next evolution columns
+rrapply(
+  pokedex, 
+  how = &quot;bind&quot;,
+  options = list(coldepth = 5, namecols = TRUE)
+) |&gt;
+  head(n = 10)
+#&gt;         L1 L2             L3 L4 num       name
+#&gt; 1  pokemon  1 next_evolution  1 002    Ivysaur
+#&gt; 2  pokemon  1 next_evolution  2 003   Venusaur
+#&gt; 3  pokemon  2 prev_evolution  1 001  Bulbasaur
+#&gt; 4  pokemon  2 next_evolution  1 003   Venusaur
+#&gt; 5  pokemon  3 prev_evolution  1 001  Bulbasaur
+#&gt; 6  pokemon  3 prev_evolution  2 002    Ivysaur
+#&gt; 7  pokemon  4 next_evolution  1 005 Charmeleon
+#&gt; 8  pokemon  4 next_evolution  2 006  Charizard
+#&gt; 9  pokemon  5 prev_evolution  1 004 Charmander
+#&gt; 10 pokemon  5 next_evolution  1 006  Charizard</code></pre>
+<div id="common-alternatives" class="section level3">
+<h3>Common alternatives</h3>
+<p>Several common alternatives used to unnest lists containing repeated entries include <code>data.table::rbindlist()</code>, <code>dplyr::bind_rows()</code>, and <code>tidyr</code>’s dedicated rectangling functions <code>unnest_longer()</code>, <code>unnest_wider()</code> and <code>hoist()</code>.</p>
+<p>The first two functions are primarily aimed at binding lists of data.frames or lists of lists, but are not meant for nested lists containing multiple levels of nesting, such as <code>pokedex</code>:</p>
+<pre class="r"><code>library(dplyr)
+
+## simple list of lists
+lapply(pokedex[[&quot;pokemon&quot;]], `[`, 1:4) |&gt;
+  bind_rows() |&gt; 
+  head()
+#&gt; # A tibble: 6 × 4
+#&gt;      id num   name       img                                             
+#&gt;   &lt;int&gt; &lt;chr&gt; &lt;chr&gt;      &lt;chr&gt;                                           
+#&gt; 1     1 001   Bulbasaur  http://www.serebii.net/pokemongo/pokemon/001.png
+#&gt; 2     2 002   Ivysaur    http://www.serebii.net/pokemongo/pokemon/002.png
+#&gt; 3     3 003   Venusaur   http://www.serebii.net/pokemongo/pokemon/003.png
+#&gt; 4     4 004   Charmander http://www.serebii.net/pokemongo/pokemon/004.png
+#&gt; 5     5 005   Charmeleon http://www.serebii.net/pokemongo/pokemon/005.png
+#&gt; 6     6 006   Charizard  http://www.serebii.net/pokemongo/pokemon/006.png
+
+## complex nested list (error)
+bind_rows(pokedex[[&quot;pokemon&quot;]])
+#&gt; Error in `vctrs::data_frame()`:
+#&gt; ! Can&#39;t recycle `id` (size 2) to match `weaknesses` (size 4).
+
+## simple list of lists
+lapply(pokedex[[&quot;pokemon&quot;]], `[`, 1:4) |&gt;
+  data.table::rbindlist() |&gt;
+  head()
+#&gt;    id num       name                                              img
+#&gt; 1:  1 001  Bulbasaur http://www.serebii.net/pokemongo/pokemon/001.png
+#&gt; 2:  2 002    Ivysaur http://www.serebii.net/pokemongo/pokemon/002.png
+#&gt; 3:  3 003   Venusaur http://www.serebii.net/pokemongo/pokemon/003.png
+#&gt; 4:  4 004 Charmander http://www.serebii.net/pokemongo/pokemon/004.png
+#&gt; 5:  5 005 Charmeleon http://www.serebii.net/pokemongo/pokemon/005.png
+#&gt; 6:  6 006  Charizard http://www.serebii.net/pokemongo/pokemon/006.png
+
+## complex nested list (error)
+data.table::rbindlist(pokedex[[&quot;pokemon&quot;]])
+#&gt; Error in data.table::rbindlist(pokedex[[&quot;pokemon&quot;]]): Column 5 of item 1 is length 2 inconsistent with column 15 which is length 4. Only length-1 columns are recycled.</code></pre>
+<p>The rectangling functions in the <code>tidyr</code>-package offer a lot more flexibility. A similar data.frame as returned by <code>rrapply(pokedex, how = "bind")</code> can be obtained by repeated application of <code>tidyr::unnest_wider()</code>:</p>
+<pre class="r"><code>library(tidyr)
+library(tibble)
+
+as_tibble(pokedex) |&gt;
+  unnest_wider(pokemon) |&gt;
+  unnest_wider(next_evolution, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(prev_evolution, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(next_evolution.1, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(next_evolution.2, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(next_evolution.3, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(prev_evolution.1, names_sep = &quot;.&quot;) |&gt;
+  unnest_wider(prev_evolution.2, names_sep = &quot;.&quot;) |&gt;
+  head()
+#&gt; # A tibble: 6 × 25
+#&gt;      id num   name       img   type  height weight candy candy…¹ egg   spawn…² avg_s…³ spawn…⁴ multi…⁵ weakn…⁶ next_…⁷ next_…⁸ next_…⁹ next_…˟ next_…˟
+#&gt;   &lt;int&gt; &lt;chr&gt; &lt;chr&gt;      &lt;chr&gt; &lt;lis&gt; &lt;chr&gt;  &lt;chr&gt;  &lt;chr&gt;   &lt;int&gt; &lt;chr&gt;   &lt;dbl&gt;   &lt;dbl&gt; &lt;chr&gt;   &lt;list&gt;  &lt;list&gt;  &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt; 1     1 001   Bulbasaur  http… &lt;chr&gt; 0.71 m 6.9 kg Bulb…      25 2 km   0.69     69    20:00   &lt;dbl&gt;   &lt;chr&gt;   002     Ivysaur 003     Venusa… &lt;NA&gt;   
+#&gt; 2     2 002   Ivysaur    http… &lt;chr&gt; 0.99 m 13.0 … Bulb…     100 Not …  0.042     4.2  07:00   &lt;dbl&gt;   &lt;chr&gt;   003     Venusa… &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;   
+#&gt; 3     3 003   Venusaur   http… &lt;chr&gt; 2.01 m 100.0… Bulb…      NA Not …  0.017     1.7  11:30   &lt;dbl&gt;   &lt;chr&gt;   &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;   
+#&gt; 4     4 004   Charmander http… &lt;chr&gt; 0.61 m 8.5 kg Char…      25 2 km   0.253    25.3  08:45   &lt;dbl&gt;   &lt;chr&gt;   005     Charme… 006     Chariz… &lt;NA&gt;   
+#&gt; 5     5 005   Charmeleon http… &lt;chr&gt; 1.09 m 19.0 … Char…     100 Not …  0.012     1.2  19:00   &lt;dbl&gt;   &lt;chr&gt;   006     Chariz… &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;   
+#&gt; 6     6 006   Charizard  http… &lt;chr&gt; 1.70 m 90.5 … Char…      NA Not …  0.0031    0.31 13:34   &lt;dbl&gt;   &lt;chr&gt;   &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;    &lt;NA&gt;   
+#&gt; # … with 5 more variables: next_evolution.3.name &lt;chr&gt;, prev_evolution.1.num &lt;chr&gt;, prev_evolution.1.name &lt;chr&gt;, prev_evolution.2.num &lt;chr&gt;,
+#&gt; #   prev_evolution.2.name &lt;chr&gt;, and abbreviated variable names ¹​candy_count, ²​spawn_chance, ³​avg_spawns, ⁴​spawn_time, ⁵​multipliers, ⁶​weaknesses,
+#&gt; #   ⁷​next_evolution.1.num, ⁸​next_evolution.1.name, ⁹​next_evolution.2.num, ˟​next_evolution.2.name, ˟​next_evolution.3.num
+#&gt; # ℹ Use `colnames()` to see all variable names</code></pre>
+<p>The option <code>how = "bind"</code> in <code>rrapply()</code> is less flexible as it always expands the nested list to a data.frame that is <em>as wide as possible</em>. On the other hand, the flexibility and interpretability in <code>tidyr</code>’s rectangling functions come at the cost of increased computational effort, which can become a bottleneck when unnesting large nested lists:</p>
+<pre class="r"><code>## large replicated pokedex list 
+pokedex_large &lt;- list(pokemon = do.call(c, replicate(1500, pokedex[[&quot;pokemon&quot;]], simplify = FALSE)))
+
+system.time({
+  rrapply(pokedex_large, how = &quot;bind&quot;)
+})
+#&gt;    user  system elapsed 
+#&gt;   2.181   0.024   2.211
+
+## unnest first layers prev_evolution and next_evolution
+system.time({
+  as_tibble(pokedex_large) |&gt;
+    unnest_wider(pokemon) |&gt;
+    unnest_wider(next_evolution, names_sep = &quot;.&quot;) |&gt;
+    unnest_wider(prev_evolution, names_sep = &quot;.&quot;) 
+})
+#&gt;    user  system elapsed 
+#&gt; 120.503   0.284 120.876</code></pre>
+<p><strong>Remark</strong>: in the chained calls to <code>unnest_wider()</code> above, we only unnest the first layer of the <code>next_evolution</code> and <code>prev_evolution</code> list-columns, and not any of the resulting children list-columns, which would only further increase computation time.</p>
+<p>To extract and unnest sublists at deeper levels of nesting in the list, such as <code>next_evolution</code>, we manually set the <code>coldepth</code> parameter in the <code>options</code> argument, as also demonstrated above:</p>
+<pre class="r"><code>system.time({
+  ev1 &lt;- rrapply(
+    pokedex_large, 
+    condition = \(x, .xparents) &quot;next_evolution&quot; %in% .xparents,
+    how = &quot;bind&quot;,
+    options = list(namecols = TRUE, coldepth = 5)
+  )
+})
+#&gt;    user  system elapsed 
+#&gt;   1.593   0.000   1.594
+head(ev1)
+#&gt;        L1 L2             L3 L4 num       name
+#&gt; 1 pokemon  1 next_evolution  1 002    Ivysaur
+#&gt; 2 pokemon  1 next_evolution  2 003   Venusaur
+#&gt; 3 pokemon  2 next_evolution  1 003   Venusaur
+#&gt; 4 pokemon  4 next_evolution  1 005 Charmeleon
+#&gt; 5 pokemon  4 next_evolution  2 006  Charizard
+#&gt; 6 pokemon  5 next_evolution  1 006  Charizard</code></pre>
+<p>The same unnested version of the <code>next_evolution</code> sublists can be obtained by mixing several calls to <code>unnest_wider()</code> and <code>unnest_longer()</code>:</p>
+<pre class="r"><code>system.time({
+  ev2 &lt;- as_tibble(pokedex_large) |&gt;
+    unnest_wider(pokemon) |&gt;
+    unnest_longer(next_evolution) |&gt;
+    unnest_wider(next_evolution, names_sep = &quot;_&quot;) |&gt;
+    select(id, next_evolution_num, next_evolution_name)
+})
+#&gt;    user  system elapsed 
+#&gt;  92.056   0.112  92.171
+head(ev2)
+#&gt; # A tibble: 6 × 3
+#&gt;      id next_evolution_num next_evolution_name
+#&gt;   &lt;int&gt; &lt;chr&gt;              &lt;chr&gt;              
+#&gt; 1     1 002                Ivysaur            
+#&gt; 2     1 003                Venusaur           
+#&gt; 3     2 003                Venusaur           
+#&gt; 4     3 &lt;NA&gt;               &lt;NA&gt;               
+#&gt; 5     4 005                Charmeleon         
+#&gt; 6     4 006                Charizard</code></pre>
+<p>In the context of the current example, a more efficient approach is to combine <code>unnest_wider()</code> with <code>hoist()</code>. The disadvantage is that we need to manually specify the exact locations of the elements that we wish to hoist from the nested list:</p>
+<pre class="r"><code>system.time({
+  ev3 &lt;- as_tibble(pokedex_large) |&gt;
+    unnest_wider(pokemon) |&gt;
+    hoist(next_evolution, 
+          name.1 = list(1, &quot;name&quot;),
+          name.2 = list(2, &quot;name&quot;),
+          name.3 = list(3, &quot;name&quot;)
+    ) |&gt;
+    select(id, name.1, name.2, name.3)
+})
+#&gt;    user  system elapsed 
+#&gt;  42.503   0.000  42.505
+head(ev3)
+#&gt; # A tibble: 6 × 4
+#&gt;      id name.1     name.2    name.3
+#&gt;   &lt;int&gt; &lt;chr&gt;      &lt;chr&gt;     &lt;chr&gt; 
+#&gt; 1     1 Ivysaur    Venusaur  &lt;NA&gt;  
+#&gt; 2     2 Venusaur   &lt;NA&gt;      &lt;NA&gt;  
+#&gt; 3     3 &lt;NA&gt;       &lt;NA&gt;      &lt;NA&gt;  
+#&gt; 4     4 Charmeleon Charizard &lt;NA&gt;  
+#&gt; 5     5 Charizard  &lt;NA&gt;      &lt;NA&gt;  
+#&gt; 6     6 &lt;NA&gt;       &lt;NA&gt;      &lt;NA&gt;</code></pre>
+<p>Using <code>rrapply()</code>, the same result can be obtained by adding a call to <code>reshape()</code> (or alternatively e.g. <code>tidyr::pivot_wider()</code> or <code>data.table::dcast()</code>) by converting from a long to a wide data.frame:</p>
+<pre class="r"><code>system.time({
+  ev4 &lt;- rrapply(
+    pokedex_large, 
+    condition = \(x, .xparents) &quot;next_evolution&quot; %in% .xparents,
+    how = &quot;bind&quot;, 
+    options = list(namecols = TRUE, coldepth = 5)
+  ) 
+  ev5 &lt;- reshape(
+    ev4[, c(&quot;L2&quot;, &quot;L4&quot;, &quot;name&quot;)],
+    idvar = &quot;L2&quot;,
+    timevar = &quot;L4&quot;,
+    v.names = &quot;name&quot;,
+    direction = &quot;wide&quot;
+  )
+})
+#&gt;    user  system elapsed 
+#&gt;   2.539   0.000   2.540
+head(ev5)
+#&gt;   L2     name.1    name.2 name.3
+#&gt; 1  1    Ivysaur  Venusaur   &lt;NA&gt;
+#&gt; 3  2   Venusaur      &lt;NA&gt;   &lt;NA&gt;
+#&gt; 4  4 Charmeleon Charizard   &lt;NA&gt;
+#&gt; 6  5  Charizard      &lt;NA&gt;   &lt;NA&gt;
+#&gt; 7  7  Wartortle Blastoise   &lt;NA&gt;
+#&gt; 9  8  Blastoise      &lt;NA&gt;   &lt;NA&gt;</code></pre>
+</div>
+<div id="additional-examples" class="section level3">
+<h3>Additional examples</h3>
+<p>We conclude this section by replicating some of the data rectangling examples presented in the <code>tidyr</code> vignette: <a href="https://tidyr.tidyverse.org/articles/rectangle.html" class="uri">https://tidyr.tidyverse.org/articles/rectangle.html</a>. The example nested lists are all conveniently included in the <a href="https://CRAN.R-project.org/package=repurrrsive">repurrrsive</a>-package.</p>
+<div id="github-users" class="section level4">
+<h4>GitHub Users</h4>
+<pre class="r"><code>library(repurrrsive)
+
+## nested data
+str(gh_users, list.len = 3)
+#&gt; List of 6
+#&gt;  $ :List of 30
+#&gt;   ..$ login              : chr &quot;gaborcsardi&quot;
+#&gt;   ..$ id                 : int 660288
+#&gt;   ..$ avatar_url         : chr &quot;https://avatars.githubusercontent.com/u/660288?v=3&quot;
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 30
+#&gt;   ..$ login              : chr &quot;jennybc&quot;
+#&gt;   ..$ id                 : int 599454
+#&gt;   ..$ avatar_url         : chr &quot;https://avatars.githubusercontent.com/u/599454?v=3&quot;
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 30
+#&gt;   ..$ login              : chr &quot;jtleek&quot;
+#&gt;   ..$ id                 : int 1571674
+#&gt;   ..$ avatar_url         : chr &quot;https://avatars.githubusercontent.com/u/1571674?v=3&quot;
+#&gt;   .. [list output truncated]
+#&gt;   [list output truncated]
+
+## unnested version
+rrapply(gh_users, how = &quot;bind&quot;) |&gt;
+  as_tibble()
+#&gt; # A tibble: 6 × 30
+#&gt;   login     id avata…¹ grava…² url   html_…³ follo…⁴ follo…⁵ gists…⁶ starr…⁷ subsc…⁸ organ…⁹ repos…˟ event…˟ recei…˟ type  site_…˟ name  company blog 
+#&gt;   &lt;chr&gt;  &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt; &lt;lgl&gt;   &lt;chr&gt; &lt;list&gt;  &lt;chr&gt;
+#&gt; 1 gabo… 6.60e5 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Gábo… &lt;chr&gt;   http…
+#&gt; 2 jenn… 5.99e5 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Jenn… &lt;chr&gt;   http…
+#&gt; 3 jtle… 1.57e6 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Jeff… &lt;NULL&gt;  http…
+#&gt; 4 juli… 1.25e7 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Juli… &lt;NULL&gt;  juli…
+#&gt; 5 leep… 3.51e6 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Thom… &lt;chr&gt;   http…
+#&gt; 6 masa… 8.36e6 https:… &quot;&quot;      http… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… User  FALSE   Maël… &lt;chr&gt;   http…
+#&gt; # … with 10 more variables: location &lt;chr&gt;, email &lt;list&gt;, hireable &lt;list&gt;, bio &lt;list&gt;, public_repos &lt;int&gt;, public_gists &lt;int&gt;, followers &lt;int&gt;,
+#&gt; #   following &lt;int&gt;, created_at &lt;chr&gt;, updated_at &lt;chr&gt;, and abbreviated variable names ¹​avatar_url, ²​gravatar_id, ³​html_url, ⁴​followers_url,
+#&gt; #   ⁵​following_url, ⁶​gists_url, ⁷​starred_url, ⁸​subscriptions_url, ⁹​organizations_url, ˟​repos_url, ˟​events_url, ˟​received_events_url, ˟​site_admin
+#&gt; # ℹ Use `colnames()` to see all variable names</code></pre>
+</div>
+<div id="github-repos" class="section level4">
+<h4>GitHub repos</h4>
+<pre class="r"><code>## nested data
+str(gh_repos, list.len = 2)
+#&gt; List of 6
+#&gt;  $ :List of 30
+#&gt;   ..$ :List of 68
+#&gt;   .. ..$ id               : int 61160198
+#&gt;   .. ..$ name             : chr &quot;after&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 68
+#&gt;   .. ..$ id               : int 40500181
+#&gt;   .. ..$ name             : chr &quot;argufy&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 30
+#&gt;   ..$ :List of 68
+#&gt;   .. ..$ id               : int 14756210
+#&gt;   .. ..$ name             : chr &quot;2013-11_sfu&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   ..$ :List of 68
+#&gt;   .. ..$ id               : int 14152301
+#&gt;   .. ..$ name             : chr &quot;2014-01-27-miami&quot;
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+#&gt;   [list output truncated]
+
+## unnested version
+rrapply(gh_repos, how = &quot;bind&quot;) |&gt;
+  as_tibble()
+#&gt; # A tibble: 176 × 84
+#&gt;          id name       full_…¹ owner…² owner…³ owner…⁴ owner…⁵ owner…⁶ owner…⁷ owner…⁸ owner…⁹ owner…˟ owner…˟ owner…˟ owner…˟ owner…˟ owner…˟ owner…˟
+#&gt;       &lt;int&gt; &lt;chr&gt;      &lt;chr&gt;   &lt;chr&gt;     &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  1 61160198 after      gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  2 40500181 argufy     gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  3 36442442 ask        gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  4 34924886 baseimpor… gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  5 61620661 citest     gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  6 33907457 clisymbols gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  7 37236467 cmaker     gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  8 67959624 cmark      gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt;  9 63152619 conditions gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt; 10 24343686 crayon     gaborc… gaborc…  660288 https:… &quot;&quot;      https:… https:… https:… https:… https:… https:… https:… https:… https:… https:… https:…
+#&gt; # … with 166 more rows, 66 more variables: owner.type &lt;chr&gt;, owner.site_admin &lt;lgl&gt;, private &lt;lgl&gt;, html_url &lt;chr&gt;, description &lt;list&gt;, fork &lt;lgl&gt;,
+#&gt; #   url &lt;chr&gt;, forks_url &lt;chr&gt;, keys_url &lt;chr&gt;, collaborators_url &lt;chr&gt;, teams_url &lt;chr&gt;, hooks_url &lt;chr&gt;, issue_events_url &lt;chr&gt;, events_url &lt;chr&gt;,
+#&gt; #   assignees_url &lt;chr&gt;, branches_url &lt;chr&gt;, tags_url &lt;chr&gt;, blobs_url &lt;chr&gt;, git_tags_url &lt;chr&gt;, git_refs_url &lt;chr&gt;, trees_url &lt;chr&gt;,
+#&gt; #   statuses_url &lt;chr&gt;, languages_url &lt;chr&gt;, stargazers_url &lt;chr&gt;, contributors_url &lt;chr&gt;, subscribers_url &lt;chr&gt;, subscription_url &lt;chr&gt;,
+#&gt; #   commits_url &lt;chr&gt;, git_commits_url &lt;chr&gt;, comments_url &lt;chr&gt;, issue_comment_url &lt;chr&gt;, contents_url &lt;chr&gt;, compare_url &lt;chr&gt;, merges_url &lt;chr&gt;,
+#&gt; #   archive_url &lt;chr&gt;, downloads_url &lt;chr&gt;, issues_url &lt;chr&gt;, pulls_url &lt;chr&gt;, milestones_url &lt;chr&gt;, notifications_url &lt;chr&gt;, labels_url &lt;chr&gt;,
+#&gt; #   releases_url &lt;chr&gt;, deployments_url &lt;chr&gt;, created_at &lt;chr&gt;, updated_at &lt;chr&gt;, pushed_at &lt;chr&gt;, git_url &lt;chr&gt;, ssh_url &lt;chr&gt;, clone_url &lt;chr&gt;, …
+#&gt; # ℹ Use `print(n = ...)` to see more rows, and `colnames()` to see all variable names</code></pre>
+</div>
+<div id="game-of-thrones-characters" class="section level4">
+<h4>Game of Thrones characters</h4>
+<pre class="r"><code>## nested data
+str(got_chars, list.len = 3)
+#&gt; List of 30
+#&gt;  $ :List of 18
+#&gt;   ..$ url        : chr &quot;https://www.anapioficeandfire.com/api/characters/1022&quot;
+#&gt;   ..$ id         : int 1022
+#&gt;   ..$ name       : chr &quot;Theon Greyjoy&quot;
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 18
+#&gt;   ..$ url        : chr &quot;https://www.anapioficeandfire.com/api/characters/1052&quot;
+#&gt;   ..$ id         : int 1052
+#&gt;   ..$ name       : chr &quot;Tyrion Lannister&quot;
+#&gt;   .. [list output truncated]
+#&gt;  $ :List of 18
+#&gt;   ..$ url        : chr &quot;https://www.anapioficeandfire.com/api/characters/1074&quot;
+#&gt;   ..$ id         : int 1074
+#&gt;   ..$ name       : chr &quot;Victarion Greyjoy&quot;
+#&gt;   .. [list output truncated]
+#&gt;   [list output truncated]
+
+## unnested version
+rrapply(got_chars, how = &quot;bind&quot;) |&gt;
+  as_tibble()
+#&gt; # A tibble: 30 × 18
+#&gt;    url                             id name  gender culture born  died  alive titles aliases father mother spouse alleg…¹ books povBo…² tvSer…³ playe…⁴
+#&gt;    &lt;chr&gt;                        &lt;int&gt; &lt;chr&gt; &lt;chr&gt;  &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt; &lt;lgl&gt; &lt;list&gt; &lt;list&gt;  &lt;chr&gt;  &lt;chr&gt;  &lt;chr&gt;  &lt;list&gt;  &lt;lis&gt; &lt;list&gt;  &lt;list&gt;  &lt;list&gt; 
+#&gt;  1 https://www.anapioficeandfi…  1022 Theo… Male   &quot;Ironb… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  2 https://www.anapioficeandfi…  1052 Tyri… Male   &quot;&quot;      &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;http… &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  3 https://www.anapioficeandfi…  1074 Vict… Male   &quot;Ironb… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  4 https://www.anapioficeandfi…  1109 Will  Male   &quot;&quot;      &quot;&quot;    &quot;In … FALSE &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;lgl&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  5 https://www.anapioficeandfi…  1166 Areo… Male   &quot;Norvo… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  6 https://www.anapioficeandfi…  1267 Chett Male   &quot;&quot;      &quot;At … &quot;In … FALSE &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;lgl&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  7 https://www.anapioficeandfi…  1295 Cres… Male   &quot;&quot;      &quot;In … &quot;In … FALSE &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;lgl&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  8 https://www.anapioficeandfi…   130 Aria… Female &quot;Dorni… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;&quot;     &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt;  9 https://www.anapioficeandfi…  1303 Daen… Female &quot;Valyr… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;http… &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt; 10 https://www.anapioficeandfi…  1319 Davo… Male   &quot;Weste… &quot;In … &quot;&quot;    TRUE  &lt;chr&gt;  &lt;chr&gt;   &quot;&quot;     &quot;&quot;     &quot;http… &lt;chr&gt;   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  
+#&gt; # … with 20 more rows, and abbreviated variable names ¹​allegiances, ²​povBooks, ³​tvSeries, ⁴​playedBy
+#&gt; # ℹ Use `print(n = ...)` to see more rows</code></pre>
+</div>
+<div id="sharla-gelfands-discography" class="section level4">
+<h4>Sharla Gelfand’s discography</h4>
+<pre class="r"><code>## nested data (first element)
+str(discog[1], list.len = 3)
+#&gt; List of 1
+#&gt;  $ :List of 5
+#&gt;   ..$ instance_id      : int 354823933
+#&gt;   ..$ date_added       : chr &quot;2019-02-16T17:48:59-08:00&quot;
+#&gt;   ..$ basic_information:List of 11
+#&gt;   .. ..$ labels      :List of 1
+#&gt;   .. .. ..$ :List of 6
+#&gt;   .. .. .. ..$ name            : chr &quot;Tobi Records (2)&quot;
+#&gt;   .. .. .. ..$ entity_type     : chr &quot;1&quot;
+#&gt;   .. .. .. ..$ catno           : chr &quot;TOB-013&quot;
+#&gt;   .. .. .. .. [list output truncated]
+#&gt;   .. ..$ year        : int 2015
+#&gt;   .. ..$ master_url  : NULL
+#&gt;   .. .. [list output truncated]
+#&gt;   .. [list output truncated]
+
+## unnested version (excluding deeply nested sublists)
+discs &lt;- rrapply(
+  discog,
+  condition = \(x, .xpos) length(.xpos) &lt; 5,
+  f = \(x) ifelse(is.null(x), NA, x),  ## replace NULLs
+  how = &quot;bind&quot;
+)
+as_tibble(discs)
+#&gt; # A tibble: 155 × 12
+#&gt;    instance_id date_added                basic_information.year basic_information.mast…¹ basic…² basic…³ basic…⁴ basic…⁵ basic…⁶ basic…⁷     id rating
+#&gt;          &lt;int&gt; &lt;chr&gt;                                      &lt;int&gt; &lt;chr&gt;                      &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;     &lt;int&gt;  &lt;int&gt;  &lt;int&gt;
+#&gt;  1   354823933 2019-02-16T17:48:59-08:00                   2015 &lt;NA&gt;                      7.50e6 &quot;https… Demo    https:… https:…       0 7.50e6      0
+#&gt;  2   354092601 2019-02-13T14:13:11-08:00                   2013 https://api.discogs.com…  4.49e6 &quot;https… Observ… https:… https:…  553057 4.49e6      0
+#&gt;  3   354091476 2019-02-13T14:07:23-08:00                   2017 https://api.discogs.com…  9.83e6 &quot;https… I       https:… https:… 1109943 9.83e6      0
+#&gt;  4   351244906 2019-02-02T11:39:58-08:00                   2017 https://api.discogs.com…  9.77e6 &quot;https… Oído A… https:… https:… 1128934 9.77e6      0
+#&gt;  5   351244801 2019-02-02T11:39:37-08:00                   2015 https://api.discogs.com…  7.24e6 &quot;https… A Cat&#39;… https:… https:…  857592 7.24e6      0
+#&gt;  6   351052065 2019-02-01T20:40:53-08:00                   2019 https://api.discogs.com…  1.31e7 &quot;https… Tashme  https:… https:… 1498137 1.31e7      0
+#&gt;  7   350315345 2019-01-29T15:48:37-08:00                   2014 https://api.discogs.com…  7.11e6 &quot;https… Demo    https:… https:…  852880 7.11e6      0
+#&gt;  8   350315103 2019-01-29T15:47:22-08:00                   2015 https://api.discogs.com…  1.05e7 &quot;https… Let Th… https:… https:…  869410 1.05e7      0
+#&gt;  9   350314507 2019-01-29T15:44:08-08:00                   2017 https://api.discogs.com…  1.13e7 &quot;&quot;      Sub Sp… https:… https:… 1281224 1.13e7      0
+#&gt; 10   350314047 2019-01-29T15:41:35-08:00                   2017 &lt;NA&gt;                      1.17e7 &quot;https… Demo    https:… https:…       0 1.17e7      0
+#&gt; # … with 145 more rows, and abbreviated variable names ¹​basic_information.master_url, ²​basic_information.id, ³​basic_information.thumb,
+#&gt; #   ⁴​basic_information.title, ⁵​basic_information.cover_image, ⁶​basic_information.resource_url, ⁷​basic_information.master_id
+#&gt; # ℹ Use `print(n = ...)` to see more rows
+
+## unnest labels sublists 
+labels &lt;- rrapply(
+  discog,
+  condition = \(x, .xparents) &quot;labels&quot; %in% .xparents,
+  how = &quot;bind&quot;,
+  options = list(coldepth = 5, namecols = TRUE)
+)
+as_tibble(labels)
+#&gt; # A tibble: 182 × 10
+#&gt;    L1    L2                L3     L4    name                                      entity_type catno   resource_url                          id entit…¹
+#&gt;    &lt;chr&gt; &lt;chr&gt;             &lt;chr&gt;  &lt;chr&gt; &lt;chr&gt;                                     &lt;chr&gt;       &lt;chr&gt;   &lt;chr&gt;                              &lt;int&gt; &lt;chr&gt;  
+#&gt;  1 1     basic_information labels 1     Tobi Records (2)                          1           TOB-013 https://api.discogs.com/labels/6… 633407 Label  
+#&gt;  2 2     basic_information labels 1     La Vida Es Un Mus                         1           Mus70   https://api.discogs.com/labels/3…  38322 Label  
+#&gt;  3 3     basic_information labels 1     La Vida Es Un Mus                         1           MUS118  https://api.discogs.com/labels/3…  38322 Label  
+#&gt;  4 4     basic_information labels 1     La Vida Es Un Mus                         1           MUS132  https://api.discogs.com/labels/3…  38322 Label  
+#&gt;  5 4     basic_information labels 2     Beat Generation                           1           BEAT64  https://api.discogs.com/labels/8…  88198 Label  
+#&gt;  6 4     basic_information labels 3     Beat Generation                           1           BEAT 64 https://api.discogs.com/labels/8…  88198 Label  
+#&gt;  7 5     basic_information labels 1     Katorga Works                             1           KW-043  https://api.discogs.com/labels/2… 205895 Label  
+#&gt;  8 6     basic_information labels 1     High Fashion Industries                   1           HFI017  https://api.discogs.com/labels/6… 637837 Label  
+#&gt;  9 7     basic_information labels 1     Mind Control Records (6)                  1           none    https://api.discogs.com/labels/7… 763103 Label  
+#&gt; 10 8     basic_information labels 1     Not On Label (Phantom Head Self-released) 1           none    https://api.discogs.com/labels/8… 879916 Label  
+#&gt; # … with 172 more rows, and abbreviated variable name ¹​entity_type_name
+#&gt; # ℹ Use `print(n = ...)` to see more rows
+
+## merge disc id&#39;s with labels
+merge(
+  x = data.frame(L1 = rownames(discs), disc_id = discs[, &quot;id&quot;]),
+  y = labels, 
+  by = &quot;L1&quot;, 
+  sort = FALSE
+) |&gt;
+  as_tibble()
+#&gt; # A tibble: 182 × 11
+#&gt;    L1     disc_id L2                L3     L4    name                                      entity_type catno   resource_url                 id entit…¹
+#&gt;    &lt;chr&gt;    &lt;int&gt; &lt;chr&gt;             &lt;chr&gt;  &lt;chr&gt; &lt;chr&gt;                                     &lt;chr&gt;       &lt;chr&gt;   &lt;chr&gt;                     &lt;int&gt; &lt;chr&gt;  
+#&gt;  1 1      7496378 basic_information labels 1     Tobi Records (2)                          1           TOB-013 https://api.discogs.com… 633407 Label  
+#&gt;  2 2      4490852 basic_information labels 1     La Vida Es Un Mus                         1           Mus70   https://api.discogs.com…  38322 Label  
+#&gt;  3 3      9827276 basic_information labels 1     La Vida Es Un Mus                         1           MUS118  https://api.discogs.com…  38322 Label  
+#&gt;  4 4      9769203 basic_information labels 1     La Vida Es Un Mus                         1           MUS132  https://api.discogs.com…  38322 Label  
+#&gt;  5 4      9769203 basic_information labels 2     Beat Generation                           1           BEAT64  https://api.discogs.com…  88198 Label  
+#&gt;  6 4      9769203 basic_information labels 3     Beat Generation                           1           BEAT 64 https://api.discogs.com…  88198 Label  
+#&gt;  7 5      7237138 basic_information labels 1     Katorga Works                             1           KW-043  https://api.discogs.com… 205895 Label  
+#&gt;  8 6     13117042 basic_information labels 1     High Fashion Industries                   1           HFI017  https://api.discogs.com… 637837 Label  
+#&gt;  9 7      7113575 basic_information labels 1     Mind Control Records (6)                  1           none    https://api.discogs.com… 763103 Label  
+#&gt; 10 8     10540713 basic_information labels 1     Not On Label (Phantom Head Self-released) 1           none    https://api.discogs.com… 879916 Label  
+#&gt; # … with 172 more rows, and abbreviated variable name ¹​entity_type_name
+#&gt; # ℹ Use `print(n = ...)` to see more rows</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div id="data.frame-to-nested-list" class="section level1">
+<h1>Data.frame to nested list</h1>
+<p>As a demonstrating example, we reconsider the long data.frame from the first section obtained after melting the renewable energy shares of all Western European countries:</p>
+<pre class="r"><code>renewable_energy_melt_west_eu &lt;- rrapply(
+  renewable_energy_by_country,
+  condition = \(x, .xparents) &quot;Western Europe&quot; %in% .xparents,
+  how = &quot;melt&quot;
+) 
+head(renewable_energy_melt_west_eu, n = 10)
+#&gt;      L1     L2             L3            L4 value
+#&gt; 1 World Europe Western Europe       Austria 34.67
+#&gt; 2 World Europe Western Europe       Belgium  9.14
+#&gt; 3 World Europe Western Europe        France 14.74
+#&gt; 4 World Europe Western Europe       Germany 14.17
+#&gt; 5 World Europe Western Europe Liechtenstein 62.93
+#&gt; 6 World Europe Western Europe    Luxembourg 13.54
+#&gt; 7 World Europe Western Europe        Monaco    NA
+#&gt; 8 World Europe Western Europe   Netherlands  5.78
+#&gt; 9 World Europe Western Europe   Switzerland 25.49</code></pre>
+<p>For certain tasks, it may be necessary to convert this data.frame back to a nested list object, e.g. to write the data to a JSON- or XML-object or for some tree visualization purpose. Writing a recursive function to reconstruct the nested list can prove to be quite time-consuming and error-prone.</p>
+<p>In this context, the <code>unlist()</code> function has an inverse counterpart <code>relist()</code> that reconstructs a nested list from the unlisted vector. The <code>relist()</code> function always requires a <code>skeleton</code> nested list to repopulate, which can make it difficult to use in practice, as such a <code>skeleton</code> object is for instance unavailable for the current example. In particular, the melted data.frame contains only a subset of the original list elements, so we can not use the original list as a template object without filtering nodes from the original list as well.</p>
+<div id="unmelt-to-nested-list" class="section level2">
+<h2>Unmelt to nested list</h2>
+<p>To address this difficulty, <code>rrapply()</code> includes the dedicated option <code>how = "unmelt"</code> that performs the inverse operation of <code>how = "melt"</code>. No skeleton object is needed in this case, only a plain data.frame in the format returned by <code>how = "melt"</code>. To illustrate, we can convert the melted data.frame above to a nested list as follows:</p>
+<pre class="r"><code>rrapply(
+  renewable_energy_melt_west_eu, 
+  how = &quot;unmelt&quot;
+) |&gt;
+  str(give.attr = FALSE)
+#&gt; List of 1
+#&gt;  $ World:List of 1
+#&gt;   ..$ Europe:List of 1
+#&gt;   .. ..$ Western Europe:List of 9
+#&gt;   .. .. ..$ Austria      : num 34.7
+#&gt;   .. .. ..$ Belgium      : num 9.14
+#&gt;   .. .. ..$ France       : num 14.7
+#&gt;   .. .. ..$ Germany      : num 14.2
+#&gt;   .. .. ..$ Liechtenstein: num 62.9
+#&gt;   .. .. ..$ Luxembourg   : num 13.5
+#&gt;   .. .. ..$ Monaco       : num NA
+#&gt;   .. .. ..$ Netherlands  : num 5.78
+#&gt;   .. .. ..$ Switzerland  : num 25.5</code></pre>
+<p><strong>Remark 1:</strong> <code>how = "unmelt"</code> is based on a <em>greedy</em> approach parsing data.frame rows as list elements starting from the top of the data.frame. That is, <code>rrapply()</code> continues collecting children nodes as long as the parent node name remains unchanged. If, for instance, the goal is to create two separate nodes (on the same level) with the name <code>"Western Europe"</code>, these nodes should not be listed directly after one another in the melted data.frame as <code>rrapply()</code> will group all children under a single <code>"Western Europe"</code> list element.</p>
+<p><strong>Remark 2:</strong> Internally, <code>how = "unmelt"</code> reconstructs a nested list from the melted data.frame and subsequently follows the same conceptual framework as <code>how = "replace"</code>. Any other function arguments, such as <code>f</code> and <code>condition</code> can be used in exactly the same way as when applying <code>how = "replace"</code> to a nested list object.</p>
+<p><strong>Remark 3:</strong> <code>how = "unmelt"</code> does (currently) not restore the attributes of intermediate list nodes and is therefore not an exact inverse of <code>how = "melt"</code>. The other way around always produces the same result:</p>
+<pre class="r"><code>renewable_energy_unmelt &lt;- rrapply(renewable_energy_melt_west_eu, how = &quot;unmelt&quot;)
+renewable_energy_remelt &lt;- rrapply(renewable_energy_unmelt, how = &quot;melt&quot;)
+
+identical(renewable_energy_melt_west_eu, renewable_energy_remelt)
+#&gt; [1] TRUE</code></pre>
+<p>In terms of computational effort, <code>rrapply()</code>’s <code>how = "unmelt"</code> can be equally or more efficient than <code>relist()</code> even though there is no template list object that can be repopulated. This is highlighted using the large list objects generated previously:</p>
+<pre class="r"><code>## large deeply nested list (2^18 elements)
+##  benchmark timing with rrapply
+system.time(deep_unmelt &lt;- rrapply(deep_melt, how = &quot;unmelt&quot;)) 
+#&gt;    user  system elapsed 
+#&gt;   0.152   0.000   0.152
+
+## benchmark timing with relist
+deep_unlist &lt;- unlist(as.relistable(deep_list))
+system.time(deep_relist &lt;- relist(deep_unlist))
+#&gt;    user  system elapsed 
+#&gt;   3.229   0.000   3.230</code></pre>
+<pre class="r"><code>## large shallow list (10^6 elements)
+## benchmark timing with rrapply 
+system.time(shallow_unmelt &lt;- rrapply(shallow_melt, how = &quot;unmelt&quot;)) 
+#&gt;    user  system elapsed 
+#&gt;   0.086   0.000   0.086
+
+## benchmark timing with relist
+shallow_unlist &lt;- unlist(as.relistable(shallow_list))
+system.time(shallow_relist &lt;- relist(shallow_unlist))
+#&gt;    user  system elapsed 
+#&gt;   6.332   0.000   6.358</code></pre>
+<p><strong>Note</strong>: the unmelted lists are not exactly identical to the original nested lists, since <code>how = "unmelt"</code> uses the placeholder names <code>1</code>, <code>2</code>, <code>3</code>, etc. in the melted data.frames to name the nodes in the newly constructed lists, whereas the name attributes in the original lists are all empty. By removing all names from the unmelted lists, they become identical to their original counterparts:</p>
+<pre class="r"><code>## remove all list names
+deep_unmelt_unnamed &lt;- rrapply(
+  deep_unmelt,
+  f = unname,
+  classes = &quot;list&quot;,
+  how = &quot;recurse&quot;
+)
+## check if identical
+identical(unname(deep_unmelt_unnamed), deep_list)
+#&gt; [1] TRUE</code></pre>
+<pre class="r"><code>## remove all list names
+shallow_unmelt_unnamed &lt;- rrapply(
+  shallow_unmelt,
+  f = unname,
+  classes = &quot;list&quot;,
+  how = &quot;recurse&quot;
+)
+## check if identical
+identical(unname(shallow_unmelt_unnamed), shallow_list)
+#&gt; [1] TRUE</code></pre>
+</div>
+<div id="references" class="section level2">
+<h2>References</h2>
+<p>The latest stable version of the <code>rrapply</code>-package is available on <a href="https://CRAN.R-project.org/package=rrapply">CRAN</a>. Additional details and examples on how to use the <code>rrapply()</code> function can be found at <a href="https://jorischau.github.io/rrapply/" class="uri">https://jorischau.github.io/rrapply/</a> and a quick reference sheet can be downloaded from the github repository at <a href="https://github.com/JorisChau/rrapply/" class="uri">https://github.com/JorisChau/rrapply/</a>.</p>
+</div>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<pre class="r"><code>sessionInfo()
+#&gt; R version 4.2.1 (2022-06-23)
+#&gt; Platform: x86_64-pc-linux-gnu (64-bit)
+#&gt; Running under: Ubuntu 20.04.4 LTS
+#&gt; 
+#&gt; Matrix products: default
+#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.9.0
+#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.9.0
+#&gt; 
+#&gt; locale:
+#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8     LC_MONETARY=en_US.UTF-8   
+#&gt;  [6] LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8       LC_NAME=C                  LC_ADDRESS=C               LC_TELEPHONE=C            
+#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+#&gt; 
+#&gt; attached base packages:
+#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     
+#&gt; 
+#&gt; other attached packages:
+#&gt; [1] repurrrsive_1.0.0 tibble_3.1.7      tidyr_1.2.0       dplyr_1.0.9       rrapply_1.2.5    
+#&gt; 
+#&gt; loaded via a namespace (and not attached):
+#&gt;  [1] Rcpp_1.0.9        bslib_0.3.1       compiler_4.2.1    pillar_1.8.0      jquerylib_0.1.4   plyr_1.8.7        tools_4.2.1       digest_0.6.29    
+#&gt;  [9] jsonlite_1.8.0    evaluate_0.15     lifecycle_1.0.1   pkgconfig_2.0.3   rlang_1.0.4       bench_1.1.2       cli_3.3.0         rstudioapi_0.13  
+#&gt; [17] yaml_2.3.5        blogdown_1.10     xfun_0.31         fastmap_1.1.0     stringr_1.4.0     knitr_1.39        generics_0.1.3    sass_0.4.1       
+#&gt; [25] vctrs_0.4.1       tidyselect_1.1.2  data.table_1.14.2 glue_1.6.2        R6_2.5.1          fansi_1.0.3       profmem_0.6.0     rmarkdown_2.14   
+#&gt; [33] bookdown_0.27     purrr_0.3.4       reshape2_1.4.4    magrittr_2.0.3    htmltools_0.5.2   ellipsis_0.3.2    utf8_1.2.2        stringi_1.7.8</code></pre>
+</div>
+<div class="footnotes footnotes-end-of-document">
+<hr />
+<ol>
+<li id="fn1"><p>The <code>renewable_energy_by_country</code> dataset is publicly available at the <a href="https://unstats-undesa.opendata.arcgis.com/datasets/">United Nations Open SDG Data Hub</a><a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>Note that <code>rrapply()</code> imposes a different column order than <code>reshape2::melt()</code> and the <code>"value"</code> column may follow slightly different coercion rules, but other than that the melted data.frames are the same.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
