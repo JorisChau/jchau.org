@@ -1,11 +1,12 @@
 ---
 title: 'Efficient list melting and unnesting with {rrapply}'
 author: Joris Chau
-date: '2022-08-23'
+date: '2022-08-25T10:00:00+02:00'
 slug: efficient-list-melting-and-unnesting-with-rrapply
 categories:
   - R
   - rrapply
+  - R-bloggers
 tags:
   - rrapply
   - R
@@ -17,7 +18,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2022-08-23T08:00:00+02:00'
+lastmod: '2022-08-25T10:00:00+02:00'
 featured: no
 image:
   placement: 1
