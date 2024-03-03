@@ -13,9 +13,6 @@ social:
 - icon: stack-overflow
   icon_pack: fab
   link: https://stackoverflow.com/users/10766590/joris-c
-- icon: twitter
-  icon_pack: fab
-  link: https://twitter.com/joris_chau
 superuser: true
 title: Joris Chau
 ---

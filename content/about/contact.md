@@ -3,10 +3,10 @@ content:
   autolink: true
   form:
     formspree:
-      id: null
+      id: xeqykwvl
     netlify:
-      captcha: true
-    provider: netlify
+      captcha: false
+    provider: formspree
 design:
   columns: "1"
 headless: true
