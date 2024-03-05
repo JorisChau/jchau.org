@@ -90,17 +90,12 @@
     {{ end }}
     {{ if ($scr.Get "highlight_enabled") }}
       {{ $v := $css.highlight.version }}
-      {{ with site.Params.highlight_style }}
+      {{ if eq ($scr.Get "light") true }}
         {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-light\">" (printf $css.highlight.url $css.highlight.version "github") | safeHTML }}
         {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-dark\" disabled>" (printf $css.highlight.url $css.highlight.version "isbl-editor-dark") | safeHTML }}
       {{ else }}
-        {{ if eq ($scr.Get "light") true }}
-          {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-light\">" (printf $css.highlight.url $css.highlight.version "github") | safeHTML }}
-          {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-dark\" disabled>" (printf $css.highlight.url $css.highlight.version "isbl-editor-dark") | safeHTML }}
-        {{ else }}
-          {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-light\" disabled>" (printf $css.highlight.url $css.highlight.version "github") | safeHTML }}
-          {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-dark\">" (printf $css.highlight.url $css.highlight.version "isbl-editor-dark") | safeHTML }}
-        {{ end }}
+        {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-light\" disabled>" (printf $css.highlight.url $css.highlight.version "github") | safeHTML }}
+        {{ printf "<link rel=\"stylesheet\" href=\"%s\" crossorigin=\"anonymous\" title=\"hl-dark\">" (printf $css.highlight.url $css.highlight.version "isbl-editor-dark") | safeHTML }}
       {{ end }}
     {{ end }}
 

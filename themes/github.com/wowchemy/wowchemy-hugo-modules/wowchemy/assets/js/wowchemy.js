@@ -449,6 +449,7 @@ $(document).ready(function () {
       }
       renderThemeVariation(isDarkTheme);
     }
+
   });
 });
 
@@ -550,6 +551,31 @@ $(window).on('load', function () {
 
   // Initialise Google Maps if necessary.
   initMap();
+
+  // Reset code highlighting
+  const codeHlLight = document.querySelector('link[title=hl-light]');
+  const codeHlDark = document.querySelector('link[title=hl-dark]');
+  let currentThemeVariation = parseInt(localStorage.getItem('dark_mode') || 2);
+  let isDarkTheme = (currentThemeVariation === 1);
+  if (currentThemeVariation === 2) {
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      // The visitor prefers dark themes.
+      isDarkTheme = true;
+    } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+      // The visitor prefers light themes.
+      isDarkTheme = false;
+    } else {
+      // The visitor does not have a day or night preference, so use the theme's default setting.
+      isDarkTheme = window.wc.isSiteThemeDark;
+    }
+  }
+  if (isDarkTheme === false) {
+    codeHlLight.disabled = false;
+    codeHlDark.disabled = true;
+  } else {
+    codeHlLight.disabled = true
+    codeHlDark.disabled = false;
+  }
 
   // Print latest version of GitHub projects.
   let githubReleaseSelector = '.js-github-release';
