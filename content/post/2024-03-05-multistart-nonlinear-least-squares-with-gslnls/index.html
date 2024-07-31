@@ -1,0 +1,1628 @@
+---
+title: Multistart nonlinear least squares fitting with {gslnls}
+author: Joris Chau
+date: '2024-07-31'
+slug: multistart-nonlinear-least-squares-with-gslnls
+categories:
+  - Statistics
+  - R
+tags:
+  - gslnls
+  - R
+  - Nonlinear least squares
+  - GSL
+  - multistart
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2024-07-31T07:00:00+00:00'
+featured: no
+image:
+  caption: ''
+  focal_point: 'Center'
+  preview_only: yes
+projects: []
+bibliography: references.bib  
+---
+
+<script src="{{< blogdown/postref >}}index_files/kePrint/kePrint.js"></script>
+<link href="{{< blogdown/postref >}}index_files/lightable/lightable.css" rel="stylesheet" />
+<link href="{{< blogdown/postref >}}index_files/tabwid/tabwid.css" rel="stylesheet" />
+<script src="{{< blogdown/postref >}}index_files/tabwid/tabwid.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>When fitting a nonlinear regression model in R with <code>nls()</code>, the first step is to select an appropriate regression model to fit the observed data, the second step is to find reasonable starting values for the model parameters in order to initialize the nonlinear least-squares (NLS) algorithm. In some cases, choosing starting values is straightforward, for instance when there is some physical interpretation to the model or the least squares objective function is highly regular and easy to optimize. In other cases, this can be more challenging, especially when the least squares objective consists of large plateaus with local minima located in narrow canyons (see e.g. <span class="citation">Transtrum, Machta, and Sethna (<a href="#ref-T11">2011</a>)</span>), or when the parameters live on very different scales. To illustrate, consider the following Hobbs’ weed infestation example dataset from <span class="citation">(<a href="#ref-N79">Nash 1979</a>)</span> and <span class="citation">(<a href="#ref-N14">Nash 2014</a>)</span>:</p>
+<pre class="r"><code>## Hobbs&#39; weed infestation data 
+hobbs_weed &lt;- data.frame(
+  x = 1:12,
+  y = c(5.308, 7.24, 9.638, 12.866, 17.069, 23.192, 31.443, 38.558, 50.156, 62.948, 75.995, 91.972)
+)</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-2-1.png" width="75%" /></p>
+<p>Using the standard Gauss-Newton algorithm to fit the nonlinear model <code>y ~ b1 / (1 + b2 * exp(-b3 * x))</code> with a basic <code>nls()</code> call, correct convergence of the algorithm is (perhaps) surprisingly sensitive to the choice of starting values. If not properly initialized, the parameters tend to run away to infinity, also known as <em>parameter evaporation</em>:</p>
+<pre class="r"><code>## initial attempt nls
+nls(
+  formula = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = c(b1 = 100, b2 = 10, b3 = 1),
+  trace = TRUE
+)
+#&gt; 34094.85    (3.11e+00): par = (100 10 1)
+#&gt; 11186.49    (3.86e+00): par = (78.18911 3.290385 0.4759647)
+#&gt; 5112.607    (4.69e+01): par = (80.9356 3.413601 0.1187296)
+#&gt; 5032.864    (3.53e+01): par = (114.9669 5.478666 0.1037978)
+#&gt; 4937.315    (2.78e+01): par = (184.1488 9.704171 0.09525315)
+#&gt; 4798.508    (2.41e+01): par = (346.9847 19.72996 0.09116909)
+#&gt; 4624.151    (2.16e+01): par = (1325.61 80.41635 0.08932604)
+#&gt; 3859.425    (1.91e+01): par = (23585.2 1465.277 0.09589796)
+#&gt; 1605.353    (1.32e+01): par = (7709100 479913.4 0.1272658)
+#&gt; Error in nls(formula = y ~ b1/(1 + b2 * exp(-b3 * x)), data = hobbs_weed, : singular gradient</code></pre>
+<p>This is in fact an example where the Gauss-Newton direction initially points to the boundary of the parameter space (see also Figure 7 in <span class="citation">Transtrum, Machta, and Sethna (<a href="#ref-T11">2011</a>)</span>). Instead, using a damped least squares algorithm (Levenberg-Marquardt) that combines both the Gauss-Newton and gradient descent directions, we expect the parameters to evaporate less quickly:</p>
+<pre class="r"><code>library(gslnls)
+
+## initial attempt gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = c(b1 = 100, b2 = 10, b3 = 1),
+  algorithm = &quot;lm&quot;
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1/(1 + b2 * exp(-b3 * x))
+#&gt;    data: hobbs_weed
+#&gt;       b1       b2       b3 
+#&gt; 196.1863  49.0916   0.3136 
+#&gt;  residual sum-of-squares: 2.587
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 15 
+#&gt; Achieved convergence tolerance: 1.554e-14</code></pre>
+<p>In an attempt to reduce the dependence of the NLS algorithm on a single set of (poorly selected) starting values, this post demonstrates a new <em>multi-start</em> procedure available<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> in R-package <a href="https://cran.r-project.org/web/packages/gslnls/index.html"><code>gslnls</code></a>, which can be useful when we have limited knowledge about the expected parameter values or when automating nonlinear model fits across multiple different datasets.</p>
+<p>A common approach in R to avoid the need for user-supplied NLS starting values is to make use of <a href="https://rdrr.io/r/stats/selfStart.html"><code>selfStart</code></a> models (<code>SSasymp()</code>, <code>SSfpl()</code>, <code>SSmicmen()</code>, etc.) that include an initialization function to return <em>reasonable</em> starting values for the nonlinear model given the available data. The initialization function typically considers a simpler approximate or linearized version of the nonlinear model for which parameters can be estimated without starting values, using e.g. <code>lm()</code>. This is the model fitting approach that is utilized by <a href="https://cran.r-project.org/web/packages/drc/index.html"><code>drc</code></a> and <a href="https://cran.r-project.org/web/packages/nlraa/index.html"><code>nlraa</code></a> among other packages. If we intend to fit a nonlinear model for which a <code>selfStart</code> implementation is already available (or straightforward to implement), this is definitely the recommended approach, since the starting values obtained from a <code>selfStart</code> model are usually well-informed and most NLS routines will not have trouble obtaining the correct parameter estimates from these starting values.</p>
+<p>If no <code>selfStart</code> model is available, another approach is to repeatedly call <code>nls()</code> using different starting values drawn as random or fixed points from a pre-defined grid. This is implemented by <code>nls2::nls2()</code> using one of the methods <code>"brute-force"</code>, <code>"grid-search"</code>, or <code>"random-search"</code>. The new multi-start procedure in <code>gsl_nls()</code> tries to improve on naive random or grid-based multi-start optimization, which can be a very time consuming process, especially if the number of parameters is large (curse of dimensionality) or the scale of the parameter ranges to evaluate is quite broad. As in any multi-start global optimization procedure, the ideal approach would be to start a local NLS optimizer within each <em>basin of attraction</em><a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a> exactly once to reach all existing local minima with minimal computational effort. In practice, we try to avoid running too many local optimizers in the same basin of attraction (resulting in the same local minimum) by exploring the parameter space for promising starting values that might converge to an unseen (local) optimum. The multi-start algorithm implemented in <code>gsl_nls()</code> is a modified version of the algorithm in <span class="citation">(<a href="#ref-HY97">Hickernell and Yuan 1997</a>)</span> that works both with or without a pre-defined grid of starting ranges. Before describing the details of the multi-start procedure, below are several examples illustrating its usage with <code>gsl_nls()</code>.</p>
+<div id="nls-examples" class="section level2">
+<h2>NLS examples</h2>
+<div id="hobbs-weed-infestation-example" class="section level3">
+<h3>Hobbs’ weed infestation example</h3>
+<p>Revisiting the Hobbs’ weed infestation example above, we fit the nonlinear model with <code>gsl_nls()</code> using a (fixed) set of starting ranges for the parameters instead of individual starting values:</p>
+<pre class="r"><code>## multi-start attempt gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = list(b1 = c(0, 1000), b2 = c(0, 1000), b3 = c(0, 10))
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1/(1 + b2 * exp(-b3 * x))
+#&gt;    data: hobbs_weed
+#&gt;       b1       b2       b3 
+#&gt; 196.1863  49.0916   0.3136 
+#&gt;  residual sum-of-squares: 2.587
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 3 
+#&gt; Achieved convergence tolerance: 2.842e-14</code></pre>
+<p>Alternatively, we can leave one or more starting ranges undefined, in which case they are updated dynamically during the multi-start optimization:</p>
+<pre class="r"><code>## multi-start attempt 2 gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = list(b1 = NA, b2 = NA, b3 = NA)
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1/(1 + b2 * exp(-b3 * x))
+#&gt;    data: hobbs_weed
+#&gt;       b1       b2       b3 
+#&gt; 196.1863  49.0916   0.3136 
+#&gt;  residual sum-of-squares: 2.587
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 4 
+#&gt; Achieved convergence tolerance: 5.329e-15</code></pre>
+</div>
+<div id="nist-strd-gauss1-example" class="section level3">
+<h3>NIST StRD <code>Gauss1</code> example</h3>
+<p>Second, we consider the <code>Gauss1</code> regression test problem as listed in the <a href="https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml">NIST StRD Nonlinear Regression</a> archive. The observed data takes the shape of a camel’s back consisting of two Gaussians on a decaying exponential baseline subject to additive Gaussian noise. The data, nonlinear model and target parameter values are included in the <code>gslnls</code> package and available through the function <code>nls_test_problem()</code>:</p>
+<pre class="r"><code>gauss1 &lt;- nls_test_problem(&quot;Gauss1&quot;)
+
+## data
+str(gauss1$data)
+#&gt; &#39;data.frame&#39;:	250 obs. of  2 variables:
+#&gt;  $ y: num  97.6 97.8 96.6 92.6 91.2 ...
+#&gt;  $ x: num  1 2 3 4 5 6 7 8 9 10 ...
+
+## model + target parameters
+gauss1[c(&quot;fn&quot;, &quot;target&quot;)]
+#&gt; $fn
+#&gt; y ~ b1 * exp(-b2 * x) + b3 * exp(-(x - b4)^2/b5^2) + b6 * exp(-(x - 
+#&gt;     b7)^2/b8^2)
+#&gt; &lt;environment: 0x55b08d8b1170&gt;
+#&gt; 
+#&gt; $target
+#&gt;           b1           b2           b3           b4           b5           b6 
+#&gt;  98.77821087   0.01049728 100.48990633  67.48111128  23.12977336  71.99450300 
+#&gt;           b7           b8 
+#&gt; 178.99805021  18.38938902</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-8-1.png" width="75%" /></p>
+<p>Due to the large number of parameters in the model <code>y ~ b1 * exp(-b2 * x) + b3 * exp(-(x - b4)**2 / b5**2) + b6 * exp(-(x - b7)**2 / b8**2)</code>, finding starting values from which <code>nls()</code> is able to correctly fit the model is a tedious task. Below is an initial attempt at solving the NLS problem with the NL2SOL algorithm (<code>algorithm = "port"</code>) and all parameters bounded from below by zero:</p>
+<pre class="r"><code>## initial attempt nls
+nls(
+  formula = gauss1$fn,
+  data = gauss1$data,
+  start = c(b1 = 100, b2 = 0, b3 = 100, b4 = 75, b5 = 25, b6 = 75, b7 = 125, b8 = 25),
+  lower = 0,
+  algorithm = &quot;port&quot;
+)
+#&gt; Error in nls(formula = gauss1$fn, data = gauss1$data, start = c(b1 = 100, : Convergence failure: singular convergence (7)</code></pre>
+<p>As seen from this example, most parameter starting values –except for <code>b7</code>– are not that far from their target values. However, <code>nls()</code> still fails to converge due to a single poorly selected starting value for the parameter <code>b7</code>.</p>
+<p>Using the multi-start procedure in <code>gsl_nls()</code>, we can combine fixed starting values or ranges when good initial guesses for the parameters are available together with missing starting values for the parameters that are lacking such information. This avoids the need to select poor starting values for certain parameters, which may cause the NLS optimization to fail as in our previous attempt to fit the model.</p>
+<pre class="r"><code>## multi-start attempt gsl_nls
+gsl_nls(
+  fn = gauss1$fn,
+  data = gauss1$data,
+  start = list(b1 = 100, b2 = c(0, 1), b3 = NA, b4 = NA, b5 = NA, b6 = NA, b7 = NA, b8 = NA),
+  lower = 0
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1 * exp(-b2 * x) + b3 * exp(-(x - b4)^2/b5^2) + b6 * exp(-(x -     b7)^2/b8^2)
+#&gt;    data: gauss1$data
+#&gt;       b1       b2       b3       b4       b5       b6       b7       b8 
+#&gt;  98.7782   0.0105 100.4899  67.4811  23.1298  71.9945 178.9981  18.3894 
+#&gt;  residual sum-of-squares: 1316
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 4 
+#&gt; Achieved convergence tolerance: 2.274e-13</code></pre>
+</div>
+<div id="lubricant-dataset-bates-watts" class="section level3">
+<h3>Lubricant dataset (Bates &amp; Watts)</h3>
+<p>As a final example, consider the Lubricant dataset from <span class="citation">(<a href="#ref-BW88">Bates and Watts 1988</a>, Appendix 1, A1.8)</span>, which measures the kinematic viscosity of a lubricant as a function of temperature (°C) and pressure (atm). The Lubricant data, model and target parameter are included as an NLS test problem in <code>gslnls</code> and can be retrieved with <code>nls_test_problem()</code> similar to the previous example. Here, <code>x1</code> encodes the temperature predictor (in °C) and <code>x2</code> is the pressure (atm) predictor.</p>
+<pre class="r"><code>lubricant &lt;- nls_test_problem(&quot;Lubricant&quot;)
+
+## data
+str(lubricant$data)
+#&gt; &#39;data.frame&#39;:	53 obs. of  3 variables:
+#&gt;  $ y : num  5.11 6.39 7.39 5.79 5.11 ...
+#&gt;  $ x1: num  0 0 0 0 0 0 0 0 0 0 ...
+#&gt;  $ x2: num  0.001 0.741 1.407 0.363 0.001 ...
+
+## model + target parameters
+lubricant[c(&quot;fn&quot;, &quot;target&quot;)]
+#&gt; $fn
+#&gt; y ~ b1/(b2 + x1) + b3 * x2 + b4 * x2^2 + b5 * x2^3 + (b6 * x2 + 
+#&gt;     b7 * x2^3) * exp(-x1/(b8 + b9 * x2^2))
+#&gt; &lt;environment: 0x55b087556d70&gt;
+#&gt; 
+#&gt; $target
+#&gt;            b1            b2            b3            b4            b5 
+#&gt; 1054.54053186  206.54577890    1.46031479   -0.25965483    0.02257371 
+#&gt;            b6            b7            b8            b9 
+#&gt;    0.40138428    0.03528405   57.40463143   -0.47672110</code></pre>
+<p><img src="{{< blogdown/postref >}}index_files/figure-html/unnamed-chunk-12-1.png" width="75%" /></p>
+<p>The nonlinear model contains a relatively large number of parameters, similar to the Gauss1 example, and the model fitting is further complicated by the large differences in magnitude of the target parameters. Without a more systematic approach, e.g. by linearizing parts of the model to initialize parameters as in <span class="citation">(<a href="#ref-BW88">Bates and Watts 1988</a>, Ch 3.6)</span>, it is difficult to obtain a good model fit with <code>nls()</code> by naively trying different sets of starting values. Here, we again use the NL2SOL algorithm (<code>algorithm = "port"</code>), selecting starting values that are all close to the target parameters, but which still cause <code>nls()</code> to fail.</p>
+<pre class="r"><code>## initial attempt nls
+nls(
+  formula = lubricant$fn,
+  data = lubricant$data,
+  start = c(b1 = 1000, b2 = 200, b3 = 1, b4 = -0.01, b5 = 0.01, b6 = 0.01, b7 = 0.01, b8 = 50, b9 = -0.01),
+  algorithm = &quot;port&quot;
+)
+#&gt; Error in nls(formula = lubricant$fn, data = lubricant$data, start = c(b1 = 1000, : Convergence failure: false convergence (8)</code></pre>
+<p>Attempting to solve the NLS problem with the multi-start procedure in <code>gsl_nls()</code>, we are able to obtain correct NLS convergence without any knowledge of the target parameters by leaving all starting values unspecified:</p>
+<pre class="r"><code>## multi-start attempt gsl_nls
+gsl_nls(
+  fn = lubricant$fn,
+  data = lubricant$data,
+  start = c(b1 = NA, b2 = NA, b3 = NA, b4 = NA, b5 = NA, b6 = NA, b7 = NA, b8 = NA, b9 = NA)
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1/(b2 + x1) + b3 * x2 + b4 * x2^2 + b5 * x2^3 + (b6 * x2 +     b7 * x2^3) * exp(-x1/(b8 + b9 * x2^2))
+#&gt;    data: lubricant$data
+#&gt;         b1         b2         b3         b4         b5         b6         b7 
+#&gt; 1054.54080  206.54584    1.46031   -0.25965    0.02257    0.40138    0.03528 
+#&gt;         b8         b9 
+#&gt;   57.40467   -0.47672 
+#&gt;  residual sum-of-squares: 0.08702
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 6 
+#&gt; Achieved convergence tolerance: 5.69e-16</code></pre>
+</div>
+</div>
+<div id="multi-start-algorithm-details" class="section level2">
+<h2>Multi-start algorithm details</h2>
+<p>Before evaluating more NLS test problems, this section provides a more comprehensive overview of the implemented multi-start algorithm. The implementation is primarily based on the global optimization algorithm in <span class="citation">(<a href="#ref-HY97">Hickernell and Yuan 1997</a>)</span>, but slightly modified to the context of trust-region nonlinear least squares. The multi-start algorithm consists of multiple <em>major</em> iterations. At the start of major iteration <span class="math inline">\(M\)</span>, a set of pseudo-random starting points is sampled inside the grid of starting ranges. Starting points with an almost singular (approximate) Hessian matrix are discarded immediately, as these are unlikely to converge to a local optimum. For the remaining points, a few iterations of the NLS optimizer are applied in order to distinguish promising from unpromising starting points. At each major iteration, only the <span class="math inline">\(q\)</span> most promising starting points are kept, and if a starting point is not discarded from this set for at least <span class="math inline">\(s\)</span> major iterations, a full NLS optimization routine is executed using this starting point. If a new optimal solution is found, the number of <em>optimal</em> stationary points NOSP is incremented and the number of found <em>worse</em> stationary points NWSP is reset to zero. If the obtained solution has already been observed before, or if it converges to a local minimum that is worse than the current optimal solution, the number of <em>worse</em> stationary points NSWP is incremented. If the number of found <em>worse</em> stationary points (NWSP) becomes much larger than the number of <em>optimal</em> starting points (NOSP), then it is likely that we have exhausted the search space and are unable to further improve the current optimal solution. The following pseudo-code provides a high-level description of the multi-start procedure. For simplicity, we first consider the scenario in which all <span class="math inline">\(p\)</span> parameter starting ranges <span class="math inline">\([l_1, u_1] \times \ldots \times [l_{p}, u_{p}]\)</span> are pre-defined and fixed.</p>
+<ol style="list-style-type: decimal">
+<li><strong>INITIALIZE</strong>
+<ul>
+<li>Choose parameters <span class="math inline">\(N \geq q \geq 1\)</span>, <span class="math inline">\(L \geq \ell \geq 1\)</span>, <span class="math inline">\(s \geq 1\)</span>, <span class="math inline">\(r &gt; 1\)</span>, <code>maxstart</code> <span class="math inline">\(\geq 1\)</span>, <code>minsp</code> <span class="math inline">\(\geq 1\)</span>. Set <span class="math inline">\(M = 0\)</span>, NOSP = NWSP = 0, and initialize a scaling vector <span class="math inline">\(\boldsymbol{D} = (0.75, \dots, 0.75) \in [0, 1]^p\)</span>.</li>
+</ul></li>
+<li><strong>SAMPLE</strong>
+<ul>
+<li>Sample <span class="math inline">\(N\)</span> initial <span class="math inline">\(p\)</span>-dimensional points <span class="math inline">\(\boldsymbol{\theta}_1,\ldots, \boldsymbol{\theta}_N\)</span> inside the grid of starting ranges <span class="math inline">\([l_1, u_1] \times \ldots \times [l_{p}, u_{p}]\)</span> from a pseudo-random Sobol sequence.</li>
+<li>For <span class="math inline">\(i = 1,\ldots,N\)</span> and <span class="math inline">\(k = 1,\ldots,p\)</span>, rescale the sampled points inside the grid of starting ranges favoring points near zero according to<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>: <span class="math inline">\(\theta^*_{i,k} = \frac{\text{sgn}(\theta_{i,k})}{D_k} \cdot ((|\theta_{i,k}| - l_k^+ - u_k^- + 1)^{D_k} - 1) + l_k^+ - u_k^-\)</span>.</li>
+</ul></li>
+<li><strong>REDUCE 1 AND CONCENTRATE</strong>
+<ul>
+<li>Discard all points for which <span class="math inline">\(\det\left(J(\boldsymbol{\theta}^*_i)^TJ(\boldsymbol{\theta}^*_i)\right) &lt; \epsilon\)</span>, with <span class="math inline">\(\epsilon &gt; 0\)</span> small and <span class="math inline">\(J(\boldsymbol{\theta}^*_i)\)</span> the Jacobian evaluated at <span class="math inline">\(\boldsymbol{\theta}^*_i\)</span>.</li>
+<li>For each remaining point apply (a small number) <span class="math inline">\(\ell\)</span> iterations of the NLS optimizer, obtaining concentrated points <span class="math inline">\(\boldsymbol{\theta}_1^{**},\ldots,\boldsymbol{\theta}_{N_1}^{**}\)</span></li>
+</ul></li>
+<li><strong>REDUCE 2</strong>
+<ul>
+<li>Identify the first <span class="math inline">\(q\)</span> order statistics of <span class="math inline">\(F(\boldsymbol{\theta}_1^{**}),\ldots,F(\boldsymbol{\theta}_{N_1}^{**})\)</span>, with <span class="math inline">\(F(\boldsymbol{\theta}_i^{**})\)</span> the NLS objective evaluated at <span class="math inline">\(\boldsymbol{\theta}_i^{**}\)</span>. Denote <span class="math inline">\(I_q\)</span> for the set of indices (of size <span class="math inline">\(q\)</span>).</li>
+<li>Update counter <span class="math inline">\(S(i) = S(i) + 1\)</span> if <span class="math inline">\(i \in I_q\)</span>, otherwise set <span class="math inline">\(S(i) = 0\)</span>.</li>
+</ul></li>
+<li><strong>OPTIMIZE</strong>
+<ul>
+<li>For each <span class="math inline">\(i\)</span> with <span class="math inline">\(S(i) \geq s\)</span>, if <span class="math inline">\(F(\boldsymbol{\theta}_i^{**}) &lt; (1 + \delta) \cdot F(\boldsymbol{\theta}^{opt})\)</span>, apply <span class="math inline">\(L\)</span> iterations of the NLS optimizer, obtaining <span class="math inline">\(\boldsymbol{\theta}_i^{***}\)</span>, and set <span class="math inline">\(S(i) = 0\)</span>.</li>
+<li>If <span class="math inline">\(F(\boldsymbol{\theta}_i^{***}) &lt; F(\boldsymbol{\theta}^{opt})\)</span>, set <span class="math inline">\(\boldsymbol{\theta}^{opt} = \boldsymbol{\theta}_i^{***}\)</span>, and update the scaling vector <span class="math inline">\(\boldsymbol{D}\)</span> by <span class="math inline">\(D_k = \left(\frac{\min_\kappa \Delta_\kappa}{\Delta_k}\right)^\alpha\)</span>, with exponent <span class="math inline">\(\alpha \in [0, 1]\)</span> and <span class="math inline">\(\boldsymbol{\Delta} = \text{diag}(J(\boldsymbol{\theta}^{***}_i)^TJ(\boldsymbol{\theta}^{***}_i))\)</span>, i.e. the diagonal damping matrix as used by Marquardt’s scaling method. Update the number of found <em>optimal</em> stationary points NOSP = NOSP + 1, and reset the number of found <em>worse</em> stationary points NWSP = 0.</li>
+<li>If <span class="math inline">\(F(\boldsymbol{\theta}_i^{***}) \geq F(\boldsymbol{\theta}^{opt})\)</span>, set NWSP = NWSP + 1.<br />
+</li>
+</ul></li>
+<li><strong>REPEAT</strong>
+<ul>
+<li>If NWSP <span class="math inline">\(\geq\)</span> <span class="math inline">\(r \cdot\)</span> NSP and NSP <span class="math inline">\(\geq\)</span> <code>minsp</code> (minimum required number of stationary points) then stop with success. Otherwise, if <span class="math inline">\(M &lt;\)</span> <code>maxstart</code>, increment <span class="math inline">\(M = M + 1\)</span> and return to step 2. sampling new pseudo-random points for each <span class="math inline">\(i\)</span> with <span class="math inline">\(S(i) = 0\)</span>, reusing <span class="math inline">\(\boldsymbol{\theta}_i = \boldsymbol{\theta}_i^{**}\)</span> if <span class="math inline">\(S(i) &gt; 0\)</span>.</li>
+</ul></li>
+</ol>
+<p>It is important to point out that there is no guarantee that the NLS objective <span class="math inline">\(F(\boldsymbol{\theta}^{opt})\)</span> at the solution returned by the multi-start procedure indeed evaluates to the global minimum inside the grid of starting ranges. This may for instance be due to the rescaling function in step 2., which is a type of inverse logistic function scaled to the starting range <span class="math inline">\([l_k, u_k]\)</span>. The scaling exponent <span class="math inline">\(D_k\)</span> is calculated from the damping matrix in Marquardt’s scaling method, thereby rescaling each parameter differently based on an approximate measure of its order of magnitude. If the damping matrix that is used to calculate the <span class="math inline">\(D_k\)</span>’s is highly –but incorrectly– confident about the order of magnitudes of certain parameters, we may not explore the parameter starting ranges <span class="math inline">\([l_k, u_k]\)</span> sufficiently broadly in the subsequent major iterations. Increasing the number of sampled points <span class="math inline">\(N\)</span> at the start of each major iteration may help to overcome such issues. If we suspect that the returned optimal solution <span class="math inline">\(\boldsymbol{\theta}^{opt}\)</span> is only a local optimizing solution, we can always force the multi-start procedure to continue searching until a better optimum is found by increasing <code>minsp</code> (minimum required number of stationary points).</p>
+<div id="missing-starting-ranges" class="section level3">
+<h3>Missing starting ranges</h3>
+<p>If no fixed starting values or ranges are defined for certain parameters, as demonstrated in the above examples, then the missing ranges <span class="math inline">\([l_k, u_k]\)</span> are initialized to the unit interval and dynamically increased or decreased in each major iteration of the multi-start algorithm. The decision to increase or decrease the limits of a parameter’s starting range is driven by the minimum and maximum parameter values obtained from the <span class="math inline">\(q\)</span> best-performing concentrated points (step 3. and 4.) with indices included in <span class="math inline">\(I_q\)</span>. These typically provide a rough indication of the order of magnitude of the parameter range in which to search for the optimal solution. If the dynamic parameter ranges fail to grow sufficiently large to include the global optimizing solution, it may help to increase the values of <span class="math inline">\(N\)</span>, <span class="math inline">\(r\)</span>, <code>maxstart</code> or <code>minsp</code> to avoid early termination of the algorithm at the cost of increased computation effort.</p>
+</div>
+</div>
+</div>
+<div id="nls-test-problems" class="section level1">
+<h1>NLS test problems</h1>
+<p>At the moment of writing this post, 59 NLS test problems are included in <code>gslnls</code> originating primarily from the <a href="https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml">NIST StRD Nonlinear Regression</a> archive, <span class="citation">(<a href="#ref-BW88">Bates and Watts 1988</a>)</span> and <span class="citation">(<a href="#ref-M81">Moré, Garbow, and Hillstrom 1981</a>)</span>. This collection of test problems contains 33 regression problems, with nonlinear models defined as a <code>formula</code> and the number of parameters and observations fixed (<code>p, n fixed</code>). The other 26 problems are NLS optimization problems, ported from the Fortran library <a href="https://people.math.sc.edu/Burkardt/f_src/test_nls/test_nls.html">TEST_NLS</a>. For these problems the nonlinear models are defined as a <code>function</code> and some of the models allow for the number of parameters and observations to be freely varied, only requiring that the number of parameters does not exceed the number of observations/residuals (<code>p &lt;= n free</code> and <code>p == n free</code>). The table below lists all 59 test problems as returned by <code>nls_test_list()</code> including their default number of observations and parameters as set in <code>gslnls</code>.</p>
+<table class="table lightable-material" style="font-size: 12px; margin-left: auto; margin-right: auto; font-family: &quot;Source Sans Pro&quot;, helvetica, sans-serif; margin-left: auto; margin-right: auto;">
+<caption style="font-size: initial !important;">
+<span id="tab:unnamed-chunk-15">Table 1: </span>NLS test problems
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+Dataset name
+</th>
+<th style="text-align:left;">
+Reference
+</th>
+<th style="text-align:right;">
+# Observations (n)
+</th>
+<th style="text-align:right;">
+# Parameters (p)
+</th>
+<th style="text-align:left;">
+Data constraint
+</th>
+<th style="text-align:left;">
+Model expression
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Misra1a
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Chwirut2
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+54
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Chwirut1
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+214
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Lanczos3
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Gauss1
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+250
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Gauss2
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+250
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+DanWood
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Misra1b
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Kirby2
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+151
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Hahn1
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+236
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Nelson
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+128
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+MGH17
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+33
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Lanczos1
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Lanczos2
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Gauss3
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+250
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Misra1c
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Misra1d
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Roszman1
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+25
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+ENSO
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+168
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+MGH09
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Thurber
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+37
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+BoxBOD
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Ratkowsky2
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+MGH10
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Eckerle4
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+35
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Ratkowsky3
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Bennett5
+</td>
+<td style="text-align:left;">
+<span class="citation">NIST StRD (<a href="#ref-NIST">1978</a>)</span>
+</td>
+<td style="text-align:right;">
+154
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Isomerization
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Lubricant
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+53
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Sulfisoxazole
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Leaves
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Chloride
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+54
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Tetracycline
+</td>
+<td style="text-align:left;">
+<span class="citation">Bates and Watts (<a href="#ref-BW88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+formula
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Linear, full rank
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Linear, rank 1
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Linear, rank 1, zero columns and rows
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Rosenbrock
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Helical valley
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Powell singular
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Freudenstein/Roth
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Bard
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Kowalik and Osborne
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Meyer
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Watson
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+31
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Box 3-dimensional
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Jennrich and Sampson
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Brown and Dennis
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+20
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Chebyquad
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:left;">
+p &lt;= n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Brown almost-linear
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:left;">
+p == n free
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Osborne 1
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+33
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Osborne 2
+</td>
+<td style="text-align:left;">
+<span class="citation">Moré, Garbow, and Hillstrom (<a href="#ref-M81">1981</a>)</span>
+</td>
+<td style="text-align:right;">
+65
+</td>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Hanson 1
+</td>
+<td style="text-align:left;">
+<span class="citation">Salane (<a href="#ref-S87">1987</a>)</span>
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Hanson 2
+</td>
+<td style="text-align:left;">
+<span class="citation">Salane (<a href="#ref-S87">1987</a>)</span>
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+McKeown 1
+</td>
+<td style="text-align:left;">
+<span class="citation">McKeown (<a href="#ref-McK75">1975</a>)</span>
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+McKeown 2
+</td>
+<td style="text-align:left;">
+<span class="citation">McKeown (<a href="#ref-McK75">1975</a>)</span>
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+McKeown 3
+</td>
+<td style="text-align:left;">
+<span class="citation">McKeown (<a href="#ref-McK75">1975</a>)</span>
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Devilliers and Glasser 1
+</td>
+<td style="text-align:left;">
+<span class="citation">Salane (<a href="#ref-S87">1987</a>)</span>
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Devilliers and Glasser 2
+</td>
+<td style="text-align:left;">
+<span class="citation">Salane (<a href="#ref-S87">1987</a>)</span>
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+<tr>
+<td style="text-align:left;font-weight: bold;">
+Madsen example
+</td>
+<td style="text-align:left;">
+<span class="citation">Madsen (<a href="#ref-M88">1988</a>)</span>
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:left;">
+p, n fixed
+</td>
+<td style="text-align:left;">
+function
+</td>
+</tr>
+</tbody>
+</table>
+<p>For each test problem, the data, nonlinear model and target parameter values can be retrieved using <code>nls_test_problem()</code>, as also illustrated above for the <code>Gauss1</code> and <code>Lubricant</code> datasets. The <code>nls_test_problem()</code> function includes suggested starting values for all regression problems and for optimization problems when using the default number of parameters and residuals (<code>p = NA, n = NA</code>). For the optimization problems, a function calculating the <span class="math inline">\(n \times p\)</span> Jacobian matrix is also returned. This function can be passed to the <code>jac</code> argument of <code>gsl_nls()</code> in order to use analytic evaluation of the gradient in the NLS algorithm.</p>
+<div id="example-regression-problem-misra1a" class="section level4">
+<h4>Example regression problem (<code>Misra1a</code>)</h4>
+<pre class="r"><code>## nls model + data
+(misra1a &lt;- nls_test_problem(&quot;Misra1a&quot;))
+#&gt; $data
+#&gt;        y     x
+#&gt; 1  10.07  77.6
+#&gt; 2  14.73 114.9
+#&gt; 3  17.94 141.1
+#&gt; 4  23.93 190.8
+#&gt; 5  29.61 239.9
+#&gt; 6  35.18 289.0
+#&gt; 7  40.02 332.8
+#&gt; 8  44.82 378.4
+#&gt; 9  50.76 434.8
+#&gt; 10 55.05 477.3
+#&gt; 11 61.01 536.8
+#&gt; 12 66.40 593.1
+#&gt; 13 75.47 689.1
+#&gt; 14 81.78 760.0
+#&gt; 
+#&gt; $fn
+#&gt; y ~ b1 * (1 - exp(-b2 * x))
+#&gt; &lt;environment: 0x55b08de3fd50&gt;
+#&gt; 
+#&gt; $start
+#&gt;    b1    b2 
+#&gt; 5e+02 1e-04 
+#&gt; 
+#&gt; $target
+#&gt;           b1           b2 
+#&gt; 2.389421e+02 5.501564e-04 
+#&gt; 
+#&gt; attr(,&quot;class&quot;)
+#&gt; [1] &quot;nls_test_formula&quot;
+
+## nls model fit
+with(misra1a, 
+     gsl_nls(
+       fn = fn,
+       data = data,
+       start = start
+     )
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ b1 * (1 - exp(-b2 * x))
+#&gt;    data: data
+#&gt;        b1        b2 
+#&gt; 2.389e+02 5.502e-04 
+#&gt;  residual sum-of-squares: 0.1246
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 16 
+#&gt; Achieved convergence tolerance: 6.745e-15</code></pre>
+</div>
+<div id="example-optimization-problem-rosenbrock" class="section level4">
+<h4>Example optimization problem (<code>Rosenbrock</code>)</h4>
+<pre class="r"><code>## nls model fit
+with(nls_test_problem(&quot;Rosenbrock&quot;), 
+     gsl_nls(
+       fn = fn,
+       y = y,
+       start = start,
+       jac = jac
+     )
+)
+#&gt; Nonlinear regression model
+#&gt;   model: y ~ fn(x)
+#&gt; x1 x2 
+#&gt;  1  1 
+#&gt;  residual sum-of-squares: 9.762e-19
+#&gt; 
+#&gt; Algorithm: multifit/levenberg-marquardt, (scaling: more, solver: qr)
+#&gt; 
+#&gt; Number of iterations to convergence: 16 
+#&gt; Achieved convergence tolerance: 7.696e-14</code></pre>
+</div>
+<div id="benchmark-nls-fits" class="section level2">
+<h2>Benchmark NLS fits</h2>
+<p>To conclude, we benchmark the performance of the multi-start algorithm by computing NLS model fits for each of the 59 test problems using the multi-start algorithm with no starting values provided, i.e. all starting values are set to <code>NA</code>. As trust region method we choose respectively: the default Levenberg-Marquardt algorithm (<code>algorithm = "lm"</code>); the double dogleg algorithm (<code>algorithm = "ddogleg"</code>); and the Levenberg-Marquardt algorithm with geodesic acceleration (<code>algorithm = "lmaccel"</code>). The maximum number of allowed iterations <code>maxiter</code> is set to <span class="math inline">\(10\ 000\)</span>, all other tuning parameters in the <code>control</code> argument are kept at their default values according to <code>gsl_nls_control()</code>. For comparison, we also compute single-start NLS model fits using the default Levenberg Marquardt algorithm (<code>algorithm = "lm"</code>), with as naive choice of starting values a vector of all ones <span class="math inline">\((1, \ldots, 1)\)</span>, similar to <code>nls()</code> when argument <code>start</code> is missing.</p>
+<p>The table below displays the NLS model fit results for each individual test problem using the following status colors:</p>
+<ul>
+<li><span style="background-color:#ABDDA4"> success </span>; the NLS routine converged successfully and the residual sum-of-squares (SSR) under the fitted parameters coincides (up to a small numeric tolerance) with the SSR under the target parameter values<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a>. The total runtime is displayed in seconds, timed on a modern laptop computer (Intel i7-8550U CPU, 1.80GHz) using a single core.<br />
+</li>
+<li><span style="color:#FFFFFF;background-color:#2B83BA"> false convergence </span>; the NLS routine converged successfully, but the residual SSR under the fitted parameters is larger than the SSR under the target parameter values.</li>
+<li><span style="background-color:#FDAE61"> max. iterations </span>; the NLS routine failed to converge within the maximum number of allowed iterations.</li>
+<li><span style="color:#FFFFFF;background-color:#D7191C"> failed/non-zero exit </span>; the NLS routine failed to converge and returns an error or an NLS object with a non-zero exit code.</li>
+</ul>
+<p>We observe that the naive single-start model fits manage to correctly fit about half of the test problems (27 out of 59), suggesting that these test problems are straightforward to optimize and do not require well-informed starting values. The multi-start model fits using the double dogleg method improve upon the naive single-start model fits achieving correct convergence for 51 out of 59 test problems. The multi-start Levenberg-Marquardt model fits correctly converge for a few more test problems (56 out of 59). Finally, the most robust results are obtained with the multi-start model fits using the Levenberg-Marquardt algorithm with geodesic acceleration, which correctly fit all 59 test problems without initializing proper starting values or starting ranges! 🎉</p>
+<div class="tabwid"><style>.cl-9081ff22{}.cl-9078d1ae{font-family:'DejaVu Sans';font-size:8pt;font-weight:bold;font-style:italic;text-decoration:none;color:rgba(0, 0, 0, 1.00);background-color:transparent;}.cl-9078d1c2{font-family:'DejaVu Sans';font-size:8pt;font-weight:normal;font-style:normal;text-decoration:none;color:rgba(0, 0, 0, 1.00);background-color:transparent;}.cl-907c38c6{margin:0;text-align:right;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-907c51bc{width:2.25in;background-color:transparent;vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51bd{width:2.25in;height:0.5in;background-color:transparent;vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51c6{width:2.25in;height:0.5in;background-color:rgba(43, 131, 186, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51c7{width:2.25in;height:0.5in;background-color:rgba(171, 221, 164, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51d0{width:2.25in;height:0.5in;background-color:transparent;vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51d1{width:2.25in;height:0.5in;background-color:rgba(215, 25, 28, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51da{width:2.25in;height:0.5in;background-color:rgba(171, 221, 164, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51db{width:2.25in;height:0.5in;background-color:rgba(43, 131, 186, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51dc{width:2.25in;height:0.5in;background-color:rgba(253, 174, 97, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-907c51e4{width:2.25in;height:0.5in;background-color:rgba(255, 255, 255, 1.00);vertical-align: middle;border-bottom: 0.75pt solid rgba(255, 255, 255, 1.00);border-top: 0.75pt solid rgba(255, 255, 255, 1.00);border-left: 0.75pt solid rgba(255, 255, 255, 1.00);border-right: 0.75pt solid rgba(255, 255, 255, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}</style><table data-quarto-disable-processing='true' class='cl-9081ff22'><thead><tr style="overflow-wrap:break-word;"><th class="cl-907c51bc"><p class="cl-907c38c6"><span class="cl-9078d1ae"></span></p></th><th class="cl-907c51bc"><p class="cl-907c38c6"><span class="cl-9078d1ae">lm/single-start</span></p></th><th class="cl-907c51bc"><p class="cl-907c38c6"><span class="cl-9078d1ae">lm/multi-start</span></p></th><th class="cl-907c51bc"><p class="cl-907c38c6"><span class="cl-9078d1ae">ddogleg/multi-start</span></p></th><th class="cl-907c51bc"><p class="cl-907c38c6"><span class="cl-9078d1ae">lmaccel/multi-start</span></p></th></tr></thead><tbody><tr><td class="cl-907c51bd"><p class="cl-907c38c6"><span class="cl-9078d1c2">Misra1a</span></p></td><td class="cl-907c51c6"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51c7"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51c7"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51c7"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Chwirut2</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Chwirut1</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.7s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Lanczos3</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.02s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Gauss1</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">4s</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Gauss2</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">4s</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">DanWood</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.003s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Misra1b</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Kirby2</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.01s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Hahn1</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Nelson</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">MGH17</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.9s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Lanczos1</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.02s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Lanczos2</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.02s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Gauss3</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">4s</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Misra1c</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.8s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Misra1d</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Roszman1</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">4s</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">ENSO</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">MGH09</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.004s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Thurber</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">BoxBOD</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Ratkowsky2</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">MGH10</span></p></td><td class="cl-907c51dc"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.7s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Eckerle4</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Ratkowsky3</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Bennett5</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Isomerization</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.008s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Lubricant</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.01s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Sulfisoxazole</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Leaves</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.9s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Chloride</span></p></td><td class="cl-907c51d1"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Tetracycline</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.005s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Linear, full rank</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Linear, rank 1</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Linear, rank 1, zero columns and rows</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Rosenbrock</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Helical valley</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Powell singular</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Freudenstein/Roth</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Bard</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.001s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Kowalik and Osborne</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Meyer</span></p></td><td class="cl-907c51dc"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Watson</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.004s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.9s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Box 3-dimensional</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Jennrich and Sampson</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.003s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Brown and Dennis</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.008s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.7s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Chebyquad</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.009s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Brown almost-linear</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.001s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.7s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.9s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Osborne 1</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.5s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Osborne 2</span></p></td><td class="cl-907c51dc"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Hanson 1</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Hanson 2</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">McKeown 1</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.002s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">McKeown 2</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.003s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">McKeown 3</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.004s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Devilliers and Glasser 1</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.4s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Devilliers and Glasser 2</span></p></td><td class="cl-907c51db"><p class="cl-907c38c6"><span class="cl-9078d1c2"></span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.6s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.7s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">1s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1c2">Madsen example</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.004s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.2s</span></p></td><td class="cl-907c51da"><p class="cl-907c38c6"><span class="cl-9078d1c2">0.3s</span></p></td></tr><tr><td class="cl-907c51d0"><p class="cl-907c38c6"><span class="cl-9078d1ae"># Successful fits</span></p></td><td class="cl-907c51e4"><p class="cl-907c38c6"><span class="cl-9078d1ae">27/59</span></p></td><td class="cl-907c51e4"><p class="cl-907c38c6"><span class="cl-9078d1ae">56/59</span></p></td><td class="cl-907c51e4"><p class="cl-907c38c6"><span class="cl-9078d1ae">51/59</span></p></td><td class="cl-907c51e4"><p class="cl-907c38c6"><span class="cl-9078d1ae">59/59</span></p></td></tr></tbody></table></div>
+</div>
+</div>
+<div id="references" class="section level1 unnumbered">
+<h1>References</h1>
+<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="ref-BW88" class="csl-entry">
+Bates, D. M., and D. G. Watts. 1988. <span>“Nonlinear Regression Analysis and Its Applications.”</span> <em>Wiley</em>.
+</div>
+<div id="ref-HY97" class="csl-entry">
+Hickernell, F. J., and Y. Yuan. 1997. <span>“A Simple Multistart Algorithm for Global Optimization.”</span> <em>OR Transactions</em> 1 (2): 1–11.
+</div>
+<div id="ref-M88" class="csl-entry">
+Madsen, K. 1988. <span>“A Combined Gauss-Newton and Quasi-Newton Method for Non-Linear Least Squares.”</span> Institute for Numerical Analysis, DTU.
+</div>
+<div id="ref-McK75" class="csl-entry">
+McKeown, J. J. 1975. <span>“Specialised Versus General-Purpose Algorithms for Minimising Functions That Are Sums of Squared Terms.”</span> <em>Mathematical Programming</em> 9: 57–68.
+</div>
+<div id="ref-M81" class="csl-entry">
+Moré, J. J., B. S. Garbow, and K. E. Hillstrom. 1981. <span>“Testing Unconstrained Optimization Software.”</span> <em>ACM Transactions on Mathematical Software (TOMS)</em> 7 (1): 17–41.
+</div>
+<div id="ref-N79" class="csl-entry">
+Nash, J. C. 1979. <em>Compact Numerical Methods for Computers: Linear Algebra and Function Minimisation</em>. Bristol, UK: Adam Hilger.
+</div>
+<div id="ref-N14" class="csl-entry">
+———. 2014. <em>Nonlinear Parameter Optimization Using r Tools</em>. UK: Wiley.
+</div>
+<div id="ref-NIST" class="csl-entry">
+NIST StRD. 1978. <span>“NIST Statistical Reference Datasets (StRD) Archive.”</span> Online source. <a href="https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml">https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml</a>.
+</div>
+<div id="ref-S87" class="csl-entry">
+Salane, D. E. 1987. <span>“A Continuation Approach for Solving Large-Residual Nonlinear Least Squares Problems.”</span> <em>SIAM Journal on Scientific and Statistical Computing</em> 8 (4): 655–71.
+</div>
+<div id="ref-T11" class="csl-entry">
+Transtrum, M. K., B. B. Machta, and J. P. Sethna. 2011. <span>“Geometry of Nonlinear Least Squares with Applications to Sloppy Models and Optimization.”</span> <em>Physical Review E</em> 83 (3).
+</div>
+</div>
+</div>
+<div class="footnotes footnotes-end-of-document">
+<hr />
+<ol>
+<li id="fn1"><p>multi-start optimization requires <a href="https://cran.r-project.org/web/packages/gslnls/index.html"><code>gslnls</code></a> version &gt;= 1.3.0.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>a <em>basin of attraction</em> refers to the basin surrounding a local minimum of the objective function, such that starting from any point inside the basin the local optimizer converges to the same local minimum.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p><span class="math inline">\(f^+ = f \vee 0\)</span> and <span class="math inline">\(f^- =-f \vee 0\)</span> denote the positive and negative part of <span class="math inline">\(f\)</span>.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>The reason for using the residual sum-of-squares (SSR) to check for correct convergence of the NLS model fits is that several problems have multiple distinct parameter solutions that result in the same (optimal) SSR.<a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

@@ -1,0 +1,546 @@
+---
+title: Multistart nonlinear least squares fitting with {gslnls}
+author: Joris Chau
+date: '2024-07-31'
+slug: multistart-nonlinear-least-squares-with-gslnls
+categories:
+  - Statistics
+  - R
+tags:
+  - gslnls
+  - R
+  - Nonlinear least squares
+  - GSL
+  - multistart
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2024-07-31T07:00:00+00:00'
+featured: no
+image:
+  caption: ''
+  focal_point: 'Center'
+  preview_only: yes
+projects: []
+bibliography: references.bib  
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(data.table)
+library(ggplot2)
+library(gslnls)
+library(flextable)
+
+opts_chunk$set(collapse = TRUE, error = TRUE, warning = FALSE, message = FALSE, echo = FALSE, eval = TRUE, comment = "#>", out.width = "100%")
+
+# save the built-in output hook
+hook_output <- knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+
+## Helper functions
+## ----------------
+
+## generate model+data plot
+make_data_plot <- function(fn, data, pars, xlabel, ylabel, title, subtitle) {
+  newdata <- data.frame(
+    x = seq(from = min(data$x), to = max(data$x), length = 100)
+  )
+  newdata[["f"]] <- eval(fn[[3]], envir = c(pars, list(x = newdata$x)))
+  ## plot data and expected response
+  ggplot(data = data, aes(x = x)) + 
+    geom_line(data = newdata, aes(y = f), color = "grey60") + 
+    geom_point(data = data, aes(y = y)) + 
+    theme_light() +
+    labs(x = xlabel, y = ylabel, title = title, subtitle = subtitle)
+}
+
+try_gsl_nls <- function(name, algorithm, scale, mstart_r = 4, mstart_n = 30, lower = NA, transf = NA, single_start = FALSE) {
+  cat(sprintf("* Model: %s, algorithm: %s, scale: %s, mstart-r: %d\n", name, algorithm, scale, mstart_r))
+  ## gsl_nls arguments
+  nls_problem <- nls_test_problem(name)
+  args <- list(
+    fn = nls_problem$fn,
+    algorithm = algorithm,
+    control = list(maxiter = 1e4, scale = scale, mstart_r = mstart_r, mstart_n = mstart_n, mstart_maxstart = 250)
+  )
+  if(!single_start) {
+    args <- c(args, list(start = structure(rep(NA, times = length(nls_problem$start)), names = names(nls_problem$start))))
+  } else {
+    args <- c(args, list(start = structure(rep(1, times = length(nls_problem$start)), names = names(nls_problem$start))))
+  }
+  if(!is.na(lower)) {
+    args <- c(args, list(lower = structure(rep(lower, length(nls_problem$start)), names = names(nls_problem$start))))
+  }
+  ## model formula
+  if(inherits(nls_problem, "nls_test_formula")) {
+    args <- c(args, list(data = nls_problem$data))
+    if(is.function(transf)) {
+      target_ssr <- with(nls_problem, sum((eval(fn[[3]], envir = c(data, target)) - transf(data$y))^2))
+    } else {
+      target_ssr <- with(nls_problem, sum((eval(fn[[3]], envir = c(data, target)) - data$y)^2))
+    }
+  }
+  ## model function
+  if(inherits(nls_problem, "nls_test_function")) {
+    args <- c(args, list(y = nls_problem$y))
+    if(is.function(transf)) {
+      target_ssr <- with(nls_problem, sum((fn(target) - transf(y))^2))
+    } else {
+      target_ssr <- with(nls_problem, sum((fn(target) - y)^2))
+    }
+  }
+  
+  ## try model fit
+  time_s <- system.time({
+    tryfit <- tryCatch({
+      suppressWarnings(
+        do.call(gsl_nls, args = args)
+      )
+    }, error = function(err) err)
+  })
+  
+  ## collect fit details
+  info <- list(name = name, type = ifelse(single_start, "single-start", "multi-start"), algorithm = algorithm, scale = scale, 
+               mstart_r = mstart_r, mstart_n = mstart_n, time_s = NA, status = "failed")
+  if(inherits(tryfit, "gsl_nls")) {
+    if(tryfit$convInfo$finIter >= args$control$maxiter) {
+      info$status <- "max. iterations"
+    } else {
+      if(target_ssr < 1e-5) {
+        check_ssr <- deviance(tryfit) < 1e-5
+      } else {
+        check_ssr <- abs(target_ssr - deviance(tryfit)) / target_ssr < 1e-5
+      }
+      if(check_ssr) {
+        info$status <- "success"
+        info$time_s <- as.list(time_s)[["elapsed"]]
+      } else {
+        info$status <- "false convergence"
+      }
+    }
+  }
+  return(info)
+}
+```
+
+# Introduction
+
+When fitting a nonlinear regression model in R with `nls()`, the first step is to select an appropriate regression model to fit the observed data, the second step is to find reasonable starting values for the model parameters in order to initialize the nonlinear least-squares (NLS) algorithm. In some cases, choosing starting values is straightforward, for instance when there is some physical interpretation to the model or the least squares objective function is highly regular and easy to optimize. In other cases, this can be more challenging, especially when the least squares objective consists of large plateaus with local minima located in narrow canyons (see e.g. @T11), or when the parameters live on very different scales. To illustrate, consider the following Hobbs' weed infestation example dataset from [@N79] and [@N14]: 
+
+```{r, echo = TRUE}
+## Hobbs' weed infestation data 
+hobbs_weed <- data.frame(
+  x = 1:12,
+  y = c(5.308, 7.24, 9.638, 12.866, 17.069, 23.192, 31.443, 38.558, 50.156, 62.948, 75.995, 91.972)
+)
+```
+
+```{r, out.width = "75%", fig.dim = c(6, 4)}
+make_data_plot(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  pars = c(b1 = 196.1863, b2 = 49.0916, b3 = 0.3136),
+  xlabel = "Time (x)",
+  ylabel = "Response (y)",
+  title = "Hobbs' weed infestation example",
+  subtitle = bquote("Model:"~y==b[1] / (1 + b[2]*exp(-b[3]*x))~";"~b[1]==196.186~","~b[2]==49.092~","~b3==0.3136)
+)
+```
+
+Using the standard Gauss-Newton algorithm to fit the nonlinear model `y ~ b1 / (1 + b2 * exp(-b3 * x))` with a basic `nls()` call, correct convergence of the algorithm is (perhaps) surprisingly sensitive to the choice of starting values. If not properly initialized, the parameters tend to run away to infinity, also known as *parameter evaporation*: 
+
+```{r, echo = TRUE}
+## initial attempt nls
+nls(
+  formula = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = c(b1 = 100, b2 = 10, b3 = 1),
+  trace = TRUE
+)
+```
+
+This is in fact an example where the Gauss-Newton direction initially points to the boundary of the parameter space (see also Figure 7 in @T11). Instead, using a damped least squares algorithm (Levenberg-Marquardt) that combines both the Gauss-Newton and gradient descent directions, we expect the parameters to evaporate less quickly:
+
+```{r, echo = TRUE}
+library(gslnls)
+
+## initial attempt gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = c(b1 = 100, b2 = 10, b3 = 1),
+  algorithm = "lm"
+)
+```
+
+In an attempt to reduce the dependence of the NLS algorithm on a single set of (poorly selected) starting values, this post demonstrates a new *multi-start* procedure available[^1] in R-package [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html), which can be useful when we have limited knowledge about the expected parameter values or when automating nonlinear model fits across multiple different datasets. 
+
+A common approach in R to avoid the need for user-supplied NLS starting values is to make use of [`selfStart`](https://rdrr.io/r/stats/selfStart.html) models (`SSasymp()`, `SSfpl()`, `SSmicmen()`, etc.) that include an initialization function to return *reasonable* starting values for the nonlinear model given the available data. The initialization function typically considers a simpler approximate or linearized version of the nonlinear model for which parameters can be estimated without starting values, using e.g. `lm()`. This is the model fitting approach that is utilized by [`drc`](https://cran.r-project.org/web/packages/drc/index.html) and [`nlraa`](https://cran.r-project.org/web/packages/nlraa/index.html) among other packages. If we intend to fit a nonlinear model for which a `selfStart` implementation is already available (or straightforward to implement), this is definitely the recommended approach, since the starting values obtained from a `selfStart` model are usually well-informed and most NLS routines will not have trouble obtaining the correct parameter estimates from these starting values. 
+
+If no `selfStart` model is available, another approach is to repeatedly call `nls()` using different starting values drawn as random or fixed points from a pre-defined grid. This is implemented by `nls2::nls2()` using one of the methods `"brute-force"`, `"grid-search"`, or `"random-search"`. The new multi-start procedure in `gsl_nls()` tries to improve on naive random or grid-based multi-start optimization, which can be a very time consuming process, especially if the number of parameters is large (curse of dimensionality) or the scale of the parameter ranges to evaluate is quite broad. As in any multi-start global optimization procedure, the ideal approach would be to start a local NLS optimizer within each *basin of attraction*[^2] exactly once to reach all existing local minima with minimal computational effort. In practice, we try to avoid running too many local optimizers in the same basin of attraction (resulting in the same local minimum) by exploring the parameter space for promising starting values that might converge to an unseen (local) optimum. The multi-start algorithm implemented in `gsl_nls()` is a modified version of the algorithm in [@HY97] that works both with or without a pre-defined grid of starting ranges. Before describing the details of the multi-start procedure, below are several examples illustrating its usage with `gsl_nls()`.
+
+## NLS examples
+
+### Hobbs' weed infestation example
+
+Revisiting the Hobbs' weed infestation example above, we fit the nonlinear model with `gsl_nls()` using a (fixed) set of starting ranges for the parameters instead of individual starting values: 
+
+```{r, echo = TRUE}
+## multi-start attempt gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = list(b1 = c(0, 1000), b2 = c(0, 1000), b3 = c(0, 10))
+)
+```
+
+Alternatively, we can leave one or more starting ranges undefined, in which case they are updated dynamically during the multi-start optimization:
+
+```{r, echo = TRUE}
+## multi-start attempt 2 gsl_nls
+gsl_nls(
+  fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
+  data = hobbs_weed,
+  start = list(b1 = NA, b2 = NA, b3 = NA)
+)
+```
+
+### NIST StRD `Gauss1` example
+
+Second, we consider the `Gauss1` regression test problem as listed in the [NIST StRD Nonlinear Regression](https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml) archive. The observed data takes the shape of a camel's back consisting of two Gaussians on a decaying exponential baseline subject to additive Gaussian noise. The data, nonlinear model and target parameter values are included in the `gslnls` package and available through the function `nls_test_problem()`:
+
+```{r, echo = TRUE}
+gauss1 <- nls_test_problem("Gauss1")
+
+## data
+str(gauss1$data)
+
+## model + target parameters
+gauss1[c("fn", "target")]
+```
+
+
+```{r, out.width = "75%", fig.dim = c(6, 4)}
+make_data_plot(
+  fn = gauss1$fn,
+  data = gauss1$data,
+  pars = gauss1$target,
+  xlabel = "x",
+  ylabel = "y",
+  title = "NIST StRD Gauss1 example",
+  subtitle = ""
+)
+```
+
+Due to the large number of parameters in the model `y ~ b1 * exp(-b2 * x) + b3 * exp(-(x - b4)**2 / b5**2) + b6 * exp(-(x - b7)**2 / b8**2)`, finding starting values from which `nls()` is able to correctly fit the model is a tedious task. Below is an initial attempt at solving the NLS problem with the NL2SOL algorithm (`algorithm = "port"`) and all parameters bounded from below by zero: 
+
+```{r, echo = TRUE}
+## initial attempt nls
+nls(
+  formula = gauss1$fn,
+  data = gauss1$data,
+  start = c(b1 = 100, b2 = 0, b3 = 100, b4 = 75, b5 = 25, b6 = 75, b7 = 125, b8 = 25),
+  lower = 0,
+  algorithm = "port"
+)
+```
+
+As seen from this example, most parameter starting values --except for `b7`-- are not that far from their target values. However, `nls()` still fails to converge due to a single poorly selected starting value for the parameter `b7`. 
+
+Using the multi-start procedure in `gsl_nls()`, we can combine fixed starting values or ranges when good initial guesses for the parameters are available together with missing starting values for the parameters that are lacking such information. This avoids the need to select poor starting values for certain parameters, which may cause the NLS optimization to fail as in our previous attempt to fit the model.
+
+```{r, echo = TRUE}
+## multi-start attempt gsl_nls
+gsl_nls(
+  fn = gauss1$fn,
+  data = gauss1$data,
+  start = list(b1 = 100, b2 = c(0, 1), b3 = NA, b4 = NA, b5 = NA, b6 = NA, b7 = NA, b8 = NA),
+  lower = 0
+)
+```
+
+### Lubricant dataset (Bates & Watts)
+
+As a final example, consider the Lubricant dataset from [@BW88, Appendix 1, A1.8], which measures the kinematic viscosity of a lubricant as a function of temperature (°C) and pressure (atm). The Lubricant data, model and target parameter are included as an NLS test problem in `gslnls` and can be retrieved with `nls_test_problem()` similar to the previous example. Here, `x1` encodes the temperature predictor (in °C) and `x2` is the pressure (atm) predictor.
+
+```{r, echo = TRUE}
+lubricant <- nls_test_problem("Lubricant")
+
+## data
+str(lubricant$data)
+
+## model + target parameters
+lubricant[c("fn", "target")]
+```
+
+
+```{r, out.width = "75%", fig.dim = c(6, 4)}
+newdata <- CJ(
+  x1 = unique(lubricant$data$x1),
+  x2 = seq(from = 0, to = 7.5, length = 50)
+)
+newdata[["f"]] <- eval(lubricant$fn[[3]], envir = c(lubricant$target, list(x1 = newdata$x1, x2 = newdata$x2)))
+
+## plot data and expected response
+ggplot(data = newdata, aes(x = x2, color = x1, group = x1)) + 
+  geom_line(aes(y = f)) + 
+  geom_point(data = lubricant$data, aes(y = y)) + 
+  scale_color_fermenter(palette = "RdBu", breaks = c(0, 25, 50, 75, 100)) +
+  theme_light() +
+  labs(x = "x2 (Pressure, atm)", y = "y (Kinematic viscosity)", color = "x1 (Temp., C)", title = "Lubricant dataset (Bates & Watts)")
+```
+
+The nonlinear model contains a relatively large number of parameters, similar to the Gauss1 example, and the model fitting is further complicated by the large differences in magnitude of the target parameters. Without a more systematic approach, e.g. by linearizing parts of the model to initialize parameters as in [@BW88, Ch 3.6], it is difficult to obtain a good model fit with `nls()` by naively trying different sets of starting values. Here, we again use the NL2SOL algorithm (`algorithm = "port"`), selecting starting values that are all close to the target parameters, but which still cause `nls()` to fail. 
+
+```{r, echo = TRUE}
+## initial attempt nls
+nls(
+  formula = lubricant$fn,
+  data = lubricant$data,
+  start = c(b1 = 1000, b2 = 200, b3 = 1, b4 = -0.01, b5 = 0.01, b6 = 0.01, b7 = 0.01, b8 = 50, b9 = -0.01),
+  algorithm = "port"
+)
+```
+
+Attempting to solve the NLS problem with the multi-start procedure in `gsl_nls()`, we are able to obtain correct NLS convergence without any knowledge of the target parameters by leaving all starting values unspecified:
+
+```{r, echo = TRUE}
+## multi-start attempt gsl_nls
+gsl_nls(
+  fn = lubricant$fn,
+  data = lubricant$data,
+  start = c(b1 = NA, b2 = NA, b3 = NA, b4 = NA, b5 = NA, b6 = NA, b7 = NA, b8 = NA, b9 = NA)
+)
+```
+
+## Multi-start algorithm details
+
+Before evaluating more NLS test problems, this section provides a more comprehensive overview of the implemented multi-start algorithm. The implementation is primarily based on the global optimization algorithm in [@HY97], but slightly modified to the context of trust-region nonlinear least squares. The multi-start algorithm consists of multiple *major* iterations. At the start of major iteration $M$, a set of pseudo-random starting points is sampled inside the grid of starting ranges. Starting points with an almost singular (approximate) Hessian matrix are discarded immediately, as these are unlikely to converge to a local optimum. For the remaining points, a few iterations of the NLS optimizer are applied in order to distinguish promising from unpromising starting points. At each major iteration, only the $q$ most promising starting points are kept, and if a starting point is not discarded from this set for at least $s$ major iterations, a full NLS optimization routine is executed using this starting point. If a new optimal solution is found, the number of *optimal* stationary points NOSP is incremented and the number of found *worse* stationary points NWSP is reset to zero. If the obtained solution has already been observed before, or if it converges to a local minimum that is worse than the current optimal solution, the number of *worse* stationary points NSWP is incremented. If the number of found *worse* stationary points (NWSP) becomes much larger than the number of *optimal* starting points (NOSP), then it is likely that we have exhausted the search space and are unable to further improve the current optimal solution. The following pseudo-code provides a high-level description of the multi-start procedure. For simplicity, we first consider the scenario in which all $p$ parameter starting ranges $[l_1, u_1] \times \ldots \times [l_{p}, u_{p}]$ are pre-defined and fixed.
+
+1. **INITIALIZE** 
+    * Choose parameters $N \geq q \geq 1$, $L \geq \ell \geq 1$, $s \geq 1$, $r > 1$, `maxstart` $\geq 1$, `minsp` $\geq 1$. Set $M = 0$, NOSP = NWSP = 0, and initialize a scaling vector $\boldsymbol{D} = (0.75, \dots, 0.75) \in [0, 1]^p$.
+2. **SAMPLE**    
+    * Sample $N$ initial $p$-dimensional points $\boldsymbol{\theta}_1,\ldots, \boldsymbol{\theta}_N$ inside the grid of starting ranges $[l_1, u_1] \times \ldots \times [l_{p}, u_{p}]$ from a pseudo-random Sobol sequence. 
+    * For $i = 1,\ldots,N$ and $k = 1,\ldots,p$, rescale the sampled points inside the grid of starting ranges favoring points near zero according to[^3]: $\theta^*_{i,k} = \frac{\text{sgn}(\theta_{i,k})}{D_k} \cdot ((|\theta_{i,k}| - l_k^+ - u_k^- + 1)^{D_k} - 1) + l_k^+ - u_k^-$.
+3. **REDUCE 1 AND CONCENTRATE**
+    * Discard all points for which $\det\left(J(\boldsymbol{\theta}^*_i)^TJ(\boldsymbol{\theta}^*_i)\right) < \epsilon$, with $\epsilon > 0$ small and $J(\boldsymbol{\theta}^*_i)$ the Jacobian evaluated at $\boldsymbol{\theta}^*_i$.
+    * For each remaining point apply (a small number) $\ell$ iterations of the NLS optimizer, obtaining concentrated points $\boldsymbol{\theta}_1^{**},\ldots,\boldsymbol{\theta}_{N_1}^{**}$
+4. **REDUCE 2**
+    * Identify the first $q$ order statistics of $F(\boldsymbol{\theta}_1^{**}),\ldots,F(\boldsymbol{\theta}_{N_1}^{**})$, with $F(\boldsymbol{\theta}_i^{**})$ the NLS objective evaluated at $\boldsymbol{\theta}_i^{**}$. Denote $I_q$ for the set of indices (of size $q$).
+    * Update counter $S(i) = S(i) + 1$ if $i \in I_q$, otherwise set $S(i) = 0$.
+5. **OPTIMIZE**
+    * For each $i$ with $S(i) \geq s$, if $F(\boldsymbol{\theta}_i^{**}) < (1 + \delta) \cdot F(\boldsymbol{\theta}^{opt})$, apply $L$ iterations of the NLS optimizer, obtaining $\boldsymbol{\theta}_i^{***}$, and set $S(i) = 0$.
+    * If $F(\boldsymbol{\theta}_i^{***}) < F(\boldsymbol{\theta}^{opt})$, set $\boldsymbol{\theta}^{opt} = \boldsymbol{\theta}_i^{***}$, and update the scaling      vector $\boldsymbol{D}$ by $D_k = \left(\frac{\min_\kappa \Delta_\kappa}{\Delta_k}\right)^\alpha$, with exponent $\alpha \in [0, 1]$ and $\boldsymbol{\Delta} = \text{diag}(J(\boldsymbol{\theta}^{***}_i)^TJ(\boldsymbol{\theta}^{***}_i))$, i.e. the diagonal damping matrix as used by Marquardt's scaling method. Update the number of found *optimal* stationary points NOSP = NOSP + 1, and reset the number of found *worse* stationary points NWSP = 0. 
+    * If $F(\boldsymbol{\theta}_i^{***}) \geq F(\boldsymbol{\theta}^{opt})$, set NWSP = NWSP + 1.      
+6. **REPEAT**
+    * If NWSP $\geq$ $r \cdot$ NSP and NSP $\geq$ `minsp` (minimum required number of stationary points) then stop with success. Otherwise, if $M <$ `maxstart`, increment $M = M + 1$ and return to step 2. sampling new pseudo-random points for each $i$ with $S(i) = 0$, reusing $\boldsymbol{\theta}_i = \boldsymbol{\theta}_i^{**}$ if $S(i) > 0$.
+
+It is important to point out that there is no guarantee that the NLS objective $F(\boldsymbol{\theta}^{opt})$ at the solution returned by the multi-start procedure indeed evaluates to the global minimum inside the grid of starting ranges. This may for instance be due to the rescaling function in step 2., which is a type of inverse logistic function scaled to the starting range $[l_k, u_k]$. The scaling exponent $D_k$ is calculated from the damping matrix in Marquardt's scaling method, thereby rescaling each parameter differently based on an approximate measure of its order of magnitude. If the damping matrix that is used to calculate the $D_k$'s is highly --but incorrectly-- confident about the order of magnitudes of certain parameters, we may not explore the parameter starting ranges $[l_k, u_k]$ sufficiently broadly in the subsequent major iterations. Increasing the number of sampled points $N$ at the start of each major iteration may help to overcome such issues. If we suspect that the returned optimal solution $\boldsymbol{\theta}^{opt}$ is only a local optimizing solution, we can always force the multi-start procedure to continue searching until a better optimum is found by increasing `minsp` (minimum required number of stationary points).
+
+### Missing starting ranges
+
+If no fixed starting values or ranges are defined for certain parameters, as demonstrated in the above examples, then the missing ranges $[l_k, u_k]$ are initialized to the unit interval and dynamically increased or decreased in each major iteration of the multi-start algorithm. The decision to increase or decrease the limits of a parameter's starting range is driven by the minimum and maximum parameter values obtained from the $q$ best-performing concentrated points (step 3. and 4.) with indices included in $I_q$. These typically provide a rough indication of the order of magnitude of the parameter range in which to search for the optimal solution. If the dynamic parameter ranges fail to grow sufficiently large to include the global optimizing solution, it may help to increase the values of $N$, $r$, `maxstart` or `minsp` to avoid early termination of the algorithm at the cost of increased computation effort.    
+
+# NLS test problems
+
+At the moment of writing this post, 59 NLS test problems are included in `gslnls` originating primarily from the [NIST StRD Nonlinear Regression](https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml) archive, [@BW88] and [@M81]. This collection of test problems contains 33 regression problems, with nonlinear models defined as a `formula` and the number of parameters and observations fixed (`p, n fixed`). The other 26 problems are NLS optimization problems, ported from the Fortran library [TEST_NLS](https://people.math.sc.edu/Burkardt/f_src/test_nls/test_nls.html). For these problems the nonlinear models are defined as a `function` and some of the models allow for the number of parameters and observations to be freely varied, only requiring that the number of parameters does not exceed the number of observations/residuals (`p <= n free` and `p == n free`). The table below lists all 59 test problems as returned by `nls_test_list()` including their default number of observations and parameters as set in `gslnls`. 
+
+```{r, echo = FALSE}
+datasets <- with(nls_test_list(),
+                 data.table(
+                   "Dataset name" = name,
+                   "Reference" = c(rep(asis_output("@NIST"), 27L), rep(asis_output("@BW88"), 6L), rep(asis_output("@M81"), 18L), 
+                                   rep(asis_output("@S87"), 2L), rep(asis_output("@McK75"), 3L), rep(asis_output("@S87"), 2L),                                    rep(asis_output("@M88"), 1L)),
+                   "# Observations (n)" = n,
+                   "# Parameters (p)" = p,
+                   "Data constraint" = check,
+                   "Model expression" = class
+                 )
+)
+
+kbl(datasets, format = "html", caption = "NLS test problems") %>%
+  kable_styling(font_size = 12) %>%
+  kable_material() %>%
+  column_spec(1, bold = TRUE)
+```
+
+For each test problem, the data, nonlinear model and target parameter values can be retrieved using `nls_test_problem()`, as also illustrated above for the `Gauss1` and `Lubricant` datasets. The `nls_test_problem()` function includes suggested starting values for all regression problems and for optimization problems when using the default number of parameters and residuals (`p = NA, n = NA`). For the optimization problems, a function calculating the $n \times p$ Jacobian matrix is also returned. This function can be passed to the `jac` argument of `gsl_nls()` in order to use analytic evaluation of the gradient in the NLS algorithm. 
+
+#### Example regression problem (`Misra1a`)
+
+```{r, echo = TRUE}
+## nls model + data
+(misra1a <- nls_test_problem("Misra1a"))
+
+## nls model fit
+with(misra1a, 
+     gsl_nls(
+       fn = fn,
+       data = data,
+       start = start
+     )
+)
+```
+
+
+#### Example optimization problem (`Rosenbrock`)
+
+```{r, echo = TRUE}
+## nls model fit
+with(nls_test_problem("Rosenbrock"), 
+     gsl_nls(
+       fn = fn,
+       y = y,
+       start = start,
+       jac = jac
+     )
+)
+```
+
+
+```{r, eval = FALSE}
+## evaluate nls fits
+# problems <- subset(nls_test_list(), class == "function")$name
+problems <- nls_test_list()$name
+
+lm_more_single <- rbindlist(
+  lapply(problems, function(problem) {
+    try_gsl_nls(
+      name = problem,
+      algorithm = "lm",
+      scale = "more",
+      # lower = ifelse(is.element(problem, c("Gauss2", "Misra1c")), 0, NA),
+      transf = ifelse(problem == "Nelson", log, NA),
+      single_start = TRUE
+    )
+  })
+)
+lm_more <- rbindlist(
+  lapply(problems, function(problem) {
+    try_gsl_nls(
+      name = problem,
+      algorithm = "lm",
+      scale = "more",
+      # lower = ifelse(is.element(problem, c("Gauss2", "Misra1c")), 0, NA),
+      transf = ifelse(problem == "Nelson", log, NA)
+    )
+  })
+)
+ddogleg_more <- rbindlist(
+  lapply(problems, function(problem) {
+    try_gsl_nls(
+      name = problem,
+      algorithm = "ddogleg",
+      scale = "more",
+      # lower = ifelse(is.element(problem, c("Gauss2", "Misra1c")), 0, NA),
+      transf = ifelse(problem == "Nelson", log, NA)
+    )
+  })
+)
+lmaccel_more <- rbindlist(
+  lapply(problems, function(problem) {
+    try_gsl_nls(
+      name = problem,
+      algorithm = "lmaccel",
+      scale = "more",
+      # lower = ifelse(is.element(problem, c("Gauss2", "Misra1c")), 0, NA),
+      transf = ifelse(problem == "Nelson", log, NA)
+    )
+  })
+)
+
+test_fits <- rbind(lm_more_single, lm_more, ddogleg_more, lmaccel_more)
+fwrite(test_fits, "test_fits.csv", append = FALSE)
+```
+
+## Benchmark NLS fits
+
+To conclude, we benchmark the performance of the multi-start algorithm by computing NLS model fits for each of the 59 test problems using the multi-start algorithm with no starting values provided, i.e. all starting values are set to `NA`. As trust region method we choose respectively: the default Levenberg-Marquardt algorithm (`algorithm = "lm"`); the double dogleg algorithm (`algorithm = "ddogleg"`); and the Levenberg-Marquardt algorithm with geodesic acceleration (`algorithm = "lmaccel"`). The maximum number of allowed iterations `maxiter` is set to $10\ 000$, all other tuning parameters in the `control` argument are kept at their default values according to `gsl_nls_control()`. For comparison, we also compute single-start NLS model fits using the default Levenberg Marquardt algorithm (`algorithm = "lm"`), with as naive choice of starting values a vector of all ones $(1, \ldots, 1)$, similar to `nls()` when argument `start` is missing.
+
+The table below displays the NLS model fit results for each individual test problem using the following status colors:
+
+* <span style="background-color:#ABDDA4"> success </span>; the NLS routine converged successfully and the residual sum-of-squares (SSR) under the fitted parameters coincides (up to a small numeric tolerance) with the SSR under the target parameter values[^4]. The total runtime is displayed in seconds, timed on a modern laptop computer (Intel i7-8550U CPU, 1.80GHz) using a single core.  
+* <span style="color:#FFFFFF;background-color:#2B83BA"> false convergence </span>; the NLS routine converged successfully, but the residual SSR under the fitted parameters is larger than the SSR under the target parameter values.
+* <span style="background-color:#FDAE61"> max. iterations </span>; the NLS routine failed to converge within the maximum number of allowed iterations.
+* <span style="color:#FFFFFF;background-color:#D7191C"> failed/non-zero exit </span>; the NLS routine failed to converge and returns an error or an NLS object with a non-zero exit code.
+
+We observe that the naive single-start model fits manage to correctly fit about half of the test problems (27 out of 59), suggesting that these test problems are straightforward to optimize and do not require well-informed starting values. The multi-start model fits using the double dogleg method improve upon the naive single-start model fits achieving correct convergence for 51 out of 59 test problems. The multi-start Levenberg-Marquardt model fits correctly converge for a few more test problems (56 out of 59). Finally, the most robust results are obtained with the multi-start model fits using the Levenberg-Marquardt algorithm with geodesic acceleration, which correctly fit all 59 test problems without initializing proper starting values or starting ranges! 🎉
+
+```{r}
+## prepare data
+test_fits <- fread("test_fits.csv")
+test_fits[, `:=`(
+  name = factor(name, levels = unique(name)),
+  algorithm = factor(paste(algorithm, type, sep = "/"), levels = c("lm/single-start", "lm/multi-start", "ddogleg/multi-start", "lmaccel/multi-start")),
+  status = factor(status, levels = c("success", "false convergence", "max. iterations", "non-zero exit", "failed", "none")),
+  time_s = fifelse(is.na(time_s), "", fifelse(time_s > 10, sprintf("%.2gs", time_s), sprintf("%.1gs", time_s)))
+)] 
+test_fits_wide <- dcast(test_fits, name ~ algorithm, sep = "/", value.var = c("time_s", "status"))
+test_fits_wide <- test_fits_wide[match(nls_test_list()$name, name)]
+setnames(test_fits_wide, sub("time_s/", "", names(test_fits_wide)))
+test_fits_wide <- rbind(test_fits_wide,
+                        data.table(
+                          name = "# Successful fits",
+                          "lm/single-start" = sprintf("%d/59", sum(nzchar(test_fits_wide[["lm/single-start"]]))),
+                          "lm/multi-start" = sprintf("%d/59", sum(nzchar(test_fits_wide[["lm/multi-start"]]))),
+                          "ddogleg/multi-start" = sprintf("%d/59", sum(nzchar(test_fits_wide[["ddogleg/multi-start"]]))),
+                          "lmaccel/multi-start" = sprintf("%d/59", sum(nzchar(test_fits_wide[["lmaccel/multi-start"]]))),
+                          "status/lm/single-start" = "none",
+                          "status/lm/multi-start" = "none",
+                          "status/ddogleg/multi-start" = "none",
+                          "status/lmaccel/multi-start" = "none"
+                        )
+)
+
+## helpers 
+color_fun <- function(x) {
+  col_palette <- c("#ABDDA4", "#2B83BA", "#FDAE61", "#D7191C", "#D7191C", "#FFFFFF")
+  col_palette[as.integer(x)]
+}
+std_border <- fp_border_default(color = "white")
+
+## table
+flextable(as.data.frame(test_fits_wide), col_keys = c("name", "lm/single-start", "lm/multi-start", "ddogleg/multi-start", "lmaccel/multi-start")) |>
+  border_outer(part = "all", border = std_border) |>
+  border_inner(border = std_border, part = "all") |>
+  compose(i = 1, j = 1, value = as_paragraph(""), part = "header") |>
+  bold(i = 1, bold = TRUE, part = "header") |>
+  bold(i = 60, bold = TRUE, part = "body") |>
+  italic(i = 1, italic = TRUE, part = "header") |>
+  italic(i = 60, italic = TRUE, part = "body") |>
+  bg(j = 2, bg = color_fun, source = "status/lm/single-start") |>
+  bg(j = 3, bg = color_fun, source = "status/lm/multi-start") |>
+  bg(j = 4, bg = color_fun, source = "status/ddogleg/multi-start") |>
+  bg(j = 5, bg = color_fun, source = "status/lmaccel/multi-start") |>
+  height(height = .5) |>
+  fontsize(size = 8, part = "all") |>
+  hrule(rule = "exact", part = "body") |>
+  align(align = "right", part = "all") |>
+  width(width = 2.25)
+```
+
+# References
+
+[^1]: multi-start optimization requires [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html) version >= 1.3.0. 
+
+[^2]: a *basin of attraction* refers to the basin surrounding a local minimum of the objective function, such that starting from any point inside the basin the local optimizer converges to the same local minimum.
+
+[^3]: $f^+ = f \vee 0$ and $f^- =-f \vee 0$ denote the positive and negative part of $f$.
+
+[^4]: The reason for using the residual sum-of-squares  (SSR) to check for correct convergence of the NLS model fits is that several problems have multiple distinct parameter solutions that result in the same (optimal) SSR. 
+
+

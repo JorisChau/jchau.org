@@ -1,0 +1,237 @@
+name,type,algorithm,scale,mstart_r,mstart_n,time_s,status
+Misra1a,single-start,lm,more,4,30,,false convergence
+Chwirut2,single-start,lm,more,4,30,,failed
+Chwirut1,single-start,lm,more,4,30,,failed
+Lanczos3,single-start,lm,more,4,30,0.0209999999999582,success
+Gauss1,single-start,lm,more,4,30,,failed
+Gauss2,single-start,lm,more,4,30,,failed
+DanWood,single-start,lm,more,4,30,0.00300000000015643,success
+Misra1b,single-start,lm,more,4,30,,false convergence
+Kirby2,single-start,lm,more,4,30,0.0109999999999673,success
+Hahn1,single-start,lm,more,4,30,,false convergence
+Nelson,single-start,lm,more,4,30,,false convergence
+MGH17,single-start,lm,more,4,30,,failed
+Lanczos1,single-start,lm,more,4,30,0.0209999999999582,success
+Lanczos2,single-start,lm,more,4,30,0.0199999999999818,success
+Gauss3,single-start,lm,more,4,30,,failed
+Misra1c,single-start,lm,more,4,30,,failed
+Misra1d,single-start,lm,more,4,30,,false convergence
+Roszman1,single-start,lm,more,4,30,,false convergence
+ENSO,single-start,lm,more,4,30,,false convergence
+MGH09,single-start,lm,more,4,30,0.00399999999990541,success
+Thurber,single-start,lm,more,4,30,,false convergence
+BoxBOD,single-start,lm,more,4,30,,false convergence
+Ratkowsky2,single-start,lm,more,4,30,,false convergence
+MGH10,single-start,lm,more,4,30,,max. iterations
+Eckerle4,single-start,lm,more,4,30,,false convergence
+Ratkowsky3,single-start,lm,more,4,30,,failed
+Bennett5,single-start,lm,more,4,30,,failed
+Isomerization,single-start,lm,more,4,30,0.0080000000000382,success
+Lubricant,single-start,lm,more,4,30,0.0139999999998963,success
+Sulfisoxazole,single-start,lm,more,4,30,,failed
+Leaves,single-start,lm,more,4,30,,failed
+Chloride,single-start,lm,more,4,30,,failed
+Tetracycline,single-start,lm,more,4,30,0.00499999999988177,success
+"Linear, full rank",single-start,lm,more,4,30,0.00199999999995271,success
+"Linear, rank 1",single-start,lm,more,4,30,0.00199999999995271,success
+"Linear, rank 1, zero columns and rows",single-start,lm,more,4,30,0.00199999999995271,success
+Rosenbrock,single-start,lm,more,4,30,0.00199999999995271,success
+Helical valley,single-start,lm,more,4,30,0.00200000000018008,success
+Powell singular,single-start,lm,more,4,30,0.00199999999995271,success
+Freudenstein/Roth,single-start,lm,more,4,30,,false convergence
+Bard,single-start,lm,more,4,30,0.000999999999976353,success
+Kowalik and Osborne,single-start,lm,more,4,30,0.00200000000018008,success
+Meyer,single-start,lm,more,4,30,,max. iterations
+Watson,single-start,lm,more,4,30,0.00399999999990541,success
+Box 3-dimensional,single-start,lm,more,4,30,0.00200000000018008,success
+Jennrich and Sampson,single-start,lm,more,4,30,0.00300000000015643,success
+Brown and Dennis,single-start,lm,more,4,30,0.0080000000000382,success
+Chebyquad,single-start,lm,more,4,30,0.00900000000001455,success
+Brown almost-linear,single-start,lm,more,4,30,0.000999999999976353,success
+Osborne 1,single-start,lm,more,4,30,,false convergence
+Osborne 2,single-start,lm,more,4,30,,max. iterations
+Hanson 1,single-start,lm,more,4,30,,false convergence
+Hanson 2,single-start,lm,more,4,30,,false convergence
+McKeown 1,single-start,lm,more,4,30,0.00199999999995271,success
+McKeown 2,single-start,lm,more,4,30,0.00299999999992906,success
+McKeown 3,single-start,lm,more,4,30,0.00400000000013279,success
+Devilliers and Glasser 1,single-start,lm,more,4,30,,false convergence
+Devilliers and Glasser 2,single-start,lm,more,4,30,,false convergence
+Madsen example,single-start,lm,more,4,30,0.00400000000013279,success
+Misra1a,multi-start,lm,more,4,30,0.43100000000004,success
+Chwirut2,multi-start,lm,more,4,30,0.444000000000187,success
+Chwirut1,multi-start,lm,more,4,30,0.503000000000156,success
+Lanczos3,multi-start,lm,more,4,30,2.45000000000005,success
+Gauss1,multi-start,lm,more,4,30,3.50399999999991,success
+Gauss2,multi-start,lm,more,4,30,3.98700000000008,success
+DanWood,multi-start,lm,more,4,30,0.289999999999964,success
+Misra1b,multi-start,lm,more,4,30,0.363000000000056,success
+Kirby2,multi-start,lm,more,4,30,0.337999999999965,success
+Hahn1,multi-start,lm,more,4,30,,false convergence
+Nelson,multi-start,lm,more,4,30,0.251999999999953,success
+MGH17,multi-start,lm,more,4,30,0.868999999999915,success
+Lanczos1,multi-start,lm,more,4,30,3.04900000000021,success
+Lanczos2,multi-start,lm,more,4,30,1.57199999999989,success
+Gauss3,multi-start,lm,more,4,30,3.67499999999995,success
+Misra1c,multi-start,lm,more,4,30,,failed
+Misra1d,multi-start,lm,more,4,30,1.76800000000003,success
+Roszman1,multi-start,lm,more,4,30,3.95299999999997,success
+ENSO,multi-start,lm,more,4,30,5.65000000000009,success
+MGH09,multi-start,lm,more,4,30,0.439000000000078,success
+Thurber,multi-start,lm,more,4,30,1.46599999999989,success
+BoxBOD,multi-start,lm,more,4,30,0.288999999999987,success
+Ratkowsky2,multi-start,lm,more,4,30,0.145999999999958,success
+MGH10,multi-start,lm,more,4,30,1.66300000000001,success
+Eckerle4,multi-start,lm,more,4,30,0.439999999999827,success
+Ratkowsky3,multi-start,lm,more,4,30,0.365999999999985,success
+Bennett5,multi-start,lm,more,4,30,,failed
+Isomerization,multi-start,lm,more,4,30,0.550999999999931,success
+Lubricant,multi-start,lm,more,4,30,2.36900000000014,success
+Sulfisoxazole,multi-start,lm,more,4,30,0.287000000000035,success
+Leaves,multi-start,lm,more,4,30,1.00099999999998,success
+Chloride,multi-start,lm,more,4,30,0.283999999999878,success
+Tetracycline,multi-start,lm,more,4,30,0.480000000000018,success
+"Linear, full rank",multi-start,lm,more,4,30,0.198000000000093,success
+"Linear, rank 1",multi-start,lm,more,4,30,0.450000000000045,success
+"Linear, rank 1, zero columns and rows",multi-start,lm,more,4,30,0.403999999999996,success
+Rosenbrock,multi-start,lm,more,4,30,0.274999999999864,success
+Helical valley,multi-start,lm,more,4,30,0.458000000000084,success
+Powell singular,multi-start,lm,more,4,30,0.33400000000006,success
+Freudenstein/Roth,multi-start,lm,more,4,30,0.37700000000018,success
+Bard,multi-start,lm,more,4,30,0.257000000000062,success
+Kowalik and Osborne,multi-start,lm,more,4,30,0.315000000000055,success
+Meyer,multi-start,lm,more,4,30,1.19100000000003,success
+Watson,multi-start,lm,more,4,30,0.860000000000127,success
+Box 3-dimensional,multi-start,lm,more,4,30,0.139000000000124,success
+Jennrich and Sampson,multi-start,lm,more,4,30,0.177999999999884,success
+Brown and Dennis,multi-start,lm,more,4,30,0.562999999999875,success
+Chebyquad,multi-start,lm,more,4,30,0.9849999999999,success
+Brown almost-linear,multi-start,lm,more,4,30,0.749000000000024,success
+Osborne 1,multi-start,lm,more,4,30,0.438999999999851,success
+Osborne 2,multi-start,lm,more,4,30,1.28100000000018,success
+Hanson 1,multi-start,lm,more,4,30,0.19600000000014,success
+Hanson 2,multi-start,lm,more,4,30,0.177000000000135,success
+McKeown 1,multi-start,lm,more,4,30,0.192000000000007,success
+McKeown 2,multi-start,lm,more,4,30,0.272000000000162,success
+McKeown 3,multi-start,lm,more,4,30,0.36200000000008,success
+Devilliers and Glasser 1,multi-start,lm,more,4,30,0.449999999999818,success
+Devilliers and Glasser 2,multi-start,lm,more,4,30,0.614000000000033,success
+Madsen example,multi-start,lm,more,4,30,0.163999999999987,success
+Misra1a,multi-start,ddogleg,more,4,30,0.202999999999975,success
+Chwirut2,multi-start,ddogleg,more,4,30,0.285000000000082,success
+Chwirut1,multi-start,ddogleg,more,4,30,0.359000000000151,success
+Lanczos3,multi-start,ddogleg,more,4,30,2.00999999999999,success
+Gauss1,multi-start,ddogleg,more,4,30,,false convergence
+Gauss2,multi-start,ddogleg,more,4,30,,false convergence
+DanWood,multi-start,ddogleg,more,4,30,0.297000000000025,success
+Misra1b,multi-start,ddogleg,more,4,30,0.555000000000064,success
+Kirby2,multi-start,ddogleg,more,4,30,0.340999999999895,success
+Hahn1,multi-start,ddogleg,more,4,30,,false convergence
+Nelson,multi-start,ddogleg,more,4,30,0.562000000000126,success
+MGH17,multi-start,ddogleg,more,4,30,0.343000000000075,success
+Lanczos1,multi-start,ddogleg,more,4,30,2.02600000000007,success
+Lanczos2,multi-start,ddogleg,more,4,30,2.21299999999997,success
+Gauss3,multi-start,ddogleg,more,4,30,,false convergence
+Misra1c,multi-start,ddogleg,more,4,30,,failed
+Misra1d,multi-start,ddogleg,more,4,30,2.41600000000017,success
+Roszman1,multi-start,ddogleg,more,4,30,,false convergence
+ENSO,multi-start,ddogleg,more,4,30,4.53600000000006,success
+MGH09,multi-start,ddogleg,more,4,30,0.391000000000076,success
+Thurber,multi-start,ddogleg,more,4,30,1.32899999999995,success
+BoxBOD,multi-start,ddogleg,more,4,30,0.153999999999996,success
+Ratkowsky2,multi-start,ddogleg,more,4,30,0.129999999999882,success
+MGH10,multi-start,ddogleg,more,4,30,0.72400000000016,success
+Eckerle4,multi-start,ddogleg,more,4,30,0.353999999999814,success
+Ratkowsky3,multi-start,ddogleg,more,4,30,0.298000000000002,success
+Bennett5,multi-start,ddogleg,more,4,30,,false convergence
+Isomerization,multi-start,ddogleg,more,4,30,0.55399999999986,success
+Lubricant,multi-start,ddogleg,more,4,30,1.89699999999993,success
+Sulfisoxazole,multi-start,ddogleg,more,4,30,0.376999999999953,success
+Leaves,multi-start,ddogleg,more,4,30,0.850999999999885,success
+Chloride,multi-start,ddogleg,more,4,30,0.384000000000015,success
+Tetracycline,multi-start,ddogleg,more,4,30,0.29099999999994,success
+"Linear, full rank",multi-start,ddogleg,more,4,30,0.243999999999915,success
+"Linear, rank 1",multi-start,ddogleg,more,4,30,0.326999999999998,success
+"Linear, rank 1, zero columns and rows",multi-start,ddogleg,more,4,30,0.33400000000006,success
+Rosenbrock,multi-start,ddogleg,more,4,30,0.144999999999982,success
+Helical valley,multi-start,ddogleg,more,4,30,0.183999999999969,success
+Powell singular,multi-start,ddogleg,more,4,30,0.23700000000008,success
+Freudenstein/Roth,multi-start,ddogleg,more,4,30,0.20900000000006,success
+Bard,multi-start,ddogleg,more,4,30,0.168999999999869,success
+Kowalik and Osborne,multi-start,ddogleg,more,4,30,0.200000000000045,success
+Meyer,multi-start,ddogleg,more,4,30,0.493999999999915,success
+Watson,multi-start,ddogleg,more,4,30,0.412000000000035,success
+Box 3-dimensional,multi-start,ddogleg,more,4,30,0.171999999999798,success
+Jennrich and Sampson,multi-start,ddogleg,more,4,30,0.16599999999994,success
+Brown and Dennis,multi-start,ddogleg,more,4,30,0.518000000000029,success
+Chebyquad,multi-start,ddogleg,more,4,30,0.519999999999982,success
+Brown almost-linear,multi-start,ddogleg,more,4,30,0.618999999999915,success
+Osborne 1,multi-start,ddogleg,more,4,30,0.179000000000087,success
+Osborne 2,multi-start,ddogleg,more,4,30,,false convergence
+Hanson 1,multi-start,ddogleg,more,4,30,0.227000000000089,success
+Hanson 2,multi-start,ddogleg,more,4,30,0.154999999999973,success
+McKeown 1,multi-start,ddogleg,more,4,30,0.171999999999798,success
+McKeown 2,multi-start,ddogleg,more,4,30,0.231999999999971,success
+McKeown 3,multi-start,ddogleg,more,4,30,0.317999999999984,success
+Devilliers and Glasser 1,multi-start,ddogleg,more,4,30,0.353000000000066,success
+Devilliers and Glasser 2,multi-start,ddogleg,more,4,30,0.696999999999889,success
+Madsen example,multi-start,ddogleg,more,4,30,0.175999999999931,success
+Misra1a,multi-start,lmaccel,more,4,30,0.22199999999998,success
+Chwirut2,multi-start,lmaccel,more,4,30,0.432999999999993,success
+Chwirut1,multi-start,lmaccel,more,4,30,0.740000000000009,success
+Lanczos3,multi-start,lmaccel,more,4,30,2.23899999999981,success
+Gauss1,multi-start,lmaccel,more,4,30,1.65499999999997,success
+Gauss2,multi-start,lmaccel,more,4,30,1.50600000000009,success
+DanWood,multi-start,lmaccel,more,4,30,0.298999999999978,success
+Misra1b,multi-start,lmaccel,more,4,30,0.551999999999907,success
+Kirby2,multi-start,lmaccel,more,4,30,0.363000000000056,success
+Hahn1,multi-start,lmaccel,more,4,30,2.34400000000005,success
+Nelson,multi-start,lmaccel,more,4,30,0.224999999999909,success
+MGH17,multi-start,lmaccel,more,4,30,1.11599999999999,success
+Lanczos1,multi-start,lmaccel,more,4,30,1.40099999999984,success
+Lanczos2,multi-start,lmaccel,more,4,30,2,success
+Gauss3,multi-start,lmaccel,more,4,30,1.9079999999999,success
+Misra1c,multi-start,lmaccel,more,4,30,0.768000000000029,success
+Misra1d,multi-start,lmaccel,more,4,30,0.539999999999964,success
+Roszman1,multi-start,lmaccel,more,4,30,5.06299999999987,success
+ENSO,multi-start,lmaccel,more,4,30,4.64499999999998,success
+MGH09,multi-start,lmaccel,more,4,30,0.461999999999989,success
+Thurber,multi-start,lmaccel,more,4,30,1.67800000000011,success
+BoxBOD,multi-start,lmaccel,more,4,30,0.444000000000187,success
+Ratkowsky2,multi-start,lmaccel,more,4,30,0.259999999999991,success
+MGH10,multi-start,lmaccel,more,4,30,1.44200000000001,success
+Eckerle4,multi-start,lmaccel,more,4,30,0.489000000000033,success
+Ratkowsky3,multi-start,lmaccel,more,4,30,0.422999999999774,success
+Bennett5,multi-start,lmaccel,more,4,30,1.17200000000003,success
+Isomerization,multi-start,lmaccel,more,4,30,0.641000000000076,success
+Lubricant,multi-start,lmaccel,more,4,30,2.62599999999998,success
+Sulfisoxazole,multi-start,lmaccel,more,4,30,0.548999999999978,success
+Leaves,multi-start,lmaccel,more,4,30,0.302999999999884,success
+Chloride,multi-start,lmaccel,more,4,30,0.577999999999975,success
+Tetracycline,multi-start,lmaccel,more,4,30,0.377999999999929,success
+"Linear, full rank",multi-start,lmaccel,more,4,30,0.195999999999913,success
+"Linear, rank 1",multi-start,lmaccel,more,4,30,0.382000000000062,success
+"Linear, rank 1, zero columns and rows",multi-start,lmaccel,more,4,30,0.325000000000045,success
+Rosenbrock,multi-start,lmaccel,more,4,30,0.254999999999882,success
+Helical valley,multi-start,lmaccel,more,4,30,0.271000000000186,success
+Powell singular,multi-start,lmaccel,more,4,30,0.288000000000011,success
+Freudenstein/Roth,multi-start,lmaccel,more,4,30,0.378999999999905,success
+Bard,multi-start,lmaccel,more,4,30,0.341000000000122,success
+Kowalik and Osborne,multi-start,lmaccel,more,4,30,0.241999999999962,success
+Meyer,multi-start,lmaccel,more,4,30,1.04399999999987,success
+Watson,multi-start,lmaccel,more,4,30,0.545000000000073,success
+Box 3-dimensional,multi-start,lmaccel,more,4,30,0.437000000000126,success
+Jennrich and Sampson,multi-start,lmaccel,more,4,30,0.306999999999789,success
+Brown and Dennis,multi-start,lmaccel,more,4,30,0.725000000000136,success
+Chebyquad,multi-start,lmaccel,more,4,30,1.00399999999991,success
+Brown almost-linear,multi-start,lmaccel,more,4,30,0.883000000000038,success
+Osborne 1,multi-start,lmaccel,more,4,30,0.537000000000035,success
+Osborne 2,multi-start,lmaccel,more,4,30,1.26499999999987,success
+Hanson 1,multi-start,lmaccel,more,4,30,0.386999999999944,success
+Hanson 2,multi-start,lmaccel,more,4,30,0.202999999999975,success
+McKeown 1,multi-start,lmaccel,more,4,30,0.312999999999875,success
+McKeown 2,multi-start,lmaccel,more,4,30,0.433999999999969,success
+McKeown 3,multi-start,lmaccel,more,4,30,0.449000000000069,success
+Devilliers and Glasser 1,multi-start,lmaccel,more,4,30,0.557000000000016,success
+Devilliers and Glasser 2,multi-start,lmaccel,more,4,30,1.31100000000015,success
+Madsen example,multi-start,lmaccel,more,4,30,0.251999999999953,success

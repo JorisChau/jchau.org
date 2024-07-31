@@ -1,0 +1,117 @@
+% Encoding: UTF-8
+
+@Book{G09,
+  title     = {GNU Scientific Library Reference Manual},
+  publisher = {Network Theory Limited},
+  year      = {2009},
+  author    = {M. Galassi and J. Davies and J. Theiler and B. Gough and G. Jungman and M. Booth and F. Rossi},
+  edition   = {3rd},
+  isbn      = {0954612078},
+  url       = {https://www.gnu.org/software/gsl/},
+}
+
+@Article{M81,
+  author    = {J.J. Mor{\'e} and B.S. Garbow and K.E. Hillstrom},
+  title     = {Testing unconstrained optimization software},
+  journal   = {ACM Transactions on Mathematical Software (TOMS)},
+  year      = {1981},
+  volume    = {7},
+  number    = {1},
+  pages     = {17--41},
+  publisher = {ACM New York, NY, USA},
+}
+
+@Book{N79,
+  title     = {Compact numerical methods for computers: linear algebra and function minimisation},
+  publisher = {Adam Hilger},
+  year      = {1979},
+  author    = {Nash, J.C.},
+  address   = {Bristol, UK},
+  isbn      = {978-0852743195},
+}
+
+@Book{N14,
+  title     = {Nonlinear parameter optimization using R tools},
+  publisher = {Wiley},
+  year      = {2014},
+  author    = {Nash, J.C.},
+  address   = {UK},
+  isbn      = {978-1-118-56928-3},
+}
+
+@Article{HY97,
+  author  = {Hickernell, F.J. and Yuan, Y.},
+  title   = {A simple multistart algorithm for global optimization},
+  journal = {OR Transactions},
+  year    = {1997},
+  volume  = {1},
+  number  = {2},
+  pages   = {1--11},
+}
+
+@Misc{NIST,
+  author       = {{NIST StRD}},
+  title        = {NIST Statistical Reference Datasets (StRD) archive},
+  howpublished = {Online source},
+  year         = {1978},
+  url          = {https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml},
+}
+
+@Article{BW88,
+  author  = {Bates, D.M. and Watts, D.G.},
+  title   = {Nonlinear Regression Analysis and Its Applications},
+  journal = {Wiley},
+  year    = {1988},
+  issn    = {0-471-81643-4},
+}
+
+@Article{DVG81,
+  author    = {De Villiers, N. and Glasser, D.},
+  title     = {A continuation method for nonlinear regression},
+  journal   = {SIAM Journal on Numerical Analysis},
+  year      = {1981},
+  volume    = {18},
+  number    = {6},
+  pages     = {1139--1154},
+  publisher = {SIAM},
+}
+
+@Article{McK75,
+  author    = {McKeown, J.J.},
+  title     = {Specialised versus general-purpose algorithms for minimising functions that are sums of squared terms},
+  journal   = {Mathematical Programming},
+  year      = {1975},
+  volume    = {9},
+  pages     = {57--68},
+  publisher = {Springer},
+}
+
+@Article{S87,
+  author    = {Salane, D.E.},
+  title     = {A continuation approach for solving large-residual nonlinear least squares problems},
+  journal   = {SIAM journal on scientific and statistical computing},
+  year      = {1987},
+  volume    = {8},
+  number    = {4},
+  pages     = {655--671},
+  publisher = {SIAM},
+}
+
+@TechReport{M88,
+  author      = {Madsen, K.},
+  title       = {A combined Gauss-Newton and quasi-Newton Method for non-linear least squares},
+  institution = {Institute for Numerical Analysis, DTU},
+  year        = {1988},
+}
+
+@Article{T11,
+  author    = {Transtrum, M.K. and Machta, B.B. and Sethna, J.P.},
+  title     = {Geometry of nonlinear least squares with applications to sloppy models and optimization},
+  journal   = {Physical Review E},
+  year      = {2011},
+  volume    = {83},
+  number    = {3},
+  publisher = {APS},
+}
+
+@Comment{jabref-meta: databaseType:bibtex;}
