@@ -6,6 +6,7 @@ slug: multistart-nonlinear-least-squares-with-gslnls
 categories:
   - Statistics
   - R
+  - R-bloggers
 tags:
   - gslnls
   - R
@@ -15,7 +16,7 @@ tags:
 subtitle: ''
 summary: ''
 authors: []
-lastmod: '2024-07-31T07:00:00+00:00'
+lastmod: '2024-07-31T10:00:00+00:00'
 featured: no
 image:
   caption: ''
@@ -139,7 +140,7 @@ try_gsl_nls <- function(name, algorithm, scale, mstart_r = 4, mstart_n = 30, low
 
 # Introduction
 
-When fitting a nonlinear regression model in R with `nls()`, the first step is to select an appropriate regression model to fit the observed data, the second step is to find reasonable starting values for the model parameters in order to initialize the nonlinear least-squares (NLS) algorithm. In some cases, choosing starting values is straightforward, for instance when there is some physical interpretation to the model or the least squares objective function is highly regular and easy to optimize. In other cases, this can be more challenging, especially when the least squares objective consists of large plateaus with local minima located in narrow canyons (see e.g. @T11), or when the parameters live on very different scales. To illustrate, consider the following Hobbs' weed infestation example dataset from [@N79] and [@N14]: 
+When fitting a nonlinear regression model in R with `nls()`, the first step is to select an appropriate regression model to fit the observed data, the second step is to find reasonable starting values for the model parameters in order to initialize the nonlinear least-squares (NLS) algorithm. In some cases, choosing starting values is straightforward, for instance when there is some physical interpretation to the model or the least squares objective function is highly regular and easy to optimize. In other cases, this can be more challenging, especially when the least squares objective consists of large plateaus with local minima located in small narrow canyons (see e.g. @T11), or when the parameters live on very different scales. To illustrate, consider the following Hobbs' weed infestation example dataset from [@N79] and [@N14]: 
 
 ```{r, echo = TRUE}
 ## Hobbs' weed infestation data 
@@ -187,11 +188,11 @@ gsl_nls(
 )
 ```
 
-In an attempt to reduce the dependence of the NLS algorithm on a single set of (poorly selected) starting values, this post demonstrates a new *multi-start* procedure available[^1] in R-package [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html), which can be useful when we have limited knowledge about the expected parameter values or when automating nonlinear model fits across multiple different datasets. 
+In an attempt to reduce the dependence of the NLS algorithm on a single set of (poorly selected) starting values, this post demonstrates a new *multistart* procedure available[^1] in R-package [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html), which can be useful when we only have limited knowledge regarding the expected parameter values or when we wish to automate nonlinear model fits across multiple different datasets. 
 
-A common approach in R to avoid the need for user-supplied NLS starting values is to make use of [`selfStart`](https://rdrr.io/r/stats/selfStart.html) models (`SSasymp()`, `SSfpl()`, `SSmicmen()`, etc.) that include an initialization function to return *reasonable* starting values for the nonlinear model given the available data. The initialization function typically considers a simpler approximate or linearized version of the nonlinear model for which parameters can be estimated without starting values, using e.g. `lm()`. This is the model fitting approach that is utilized by [`drc`](https://cran.r-project.org/web/packages/drc/index.html) and [`nlraa`](https://cran.r-project.org/web/packages/nlraa/index.html) among other packages. If we intend to fit a nonlinear model for which a `selfStart` implementation is already available (or straightforward to implement), this is definitely the recommended approach, since the starting values obtained from a `selfStart` model are usually well-informed and most NLS routines will not have trouble obtaining the correct parameter estimates from these starting values. 
+A common approach in R to avoid the need for user-supplied NLS starting values is to make use of so-called [`selfStart`](https://rdrr.io/r/stats/selfStart.html) models (`SSasymp()`, `SSfpl()`, `SSmicmen()`, etc.) that include an initialization function to return *reasonable* starting values for the nonlinear model given the available data. The initialization function typically considers a simpler approximate or linearized version of the nonlinear model for which parameters can be estimated without starting values, using e.g. `lm()`. This is the model fitting approach that is utilized by [`drc`](https://cran.r-project.org/web/packages/drc/index.html) and [`nlraa`](https://cran.r-project.org/web/packages/nlraa/index.html) among other packages. If we intend to fit a nonlinear model for which a `selfStart` implementation is already available (or straightforward to implement), this is definitely the recommended approach, since the starting values obtained from a `selfStart` model are usually well-informed and most NLS routines will not have trouble obtaining the correct parameter estimates from these starting values. 
 
-If no `selfStart` model is available, another approach is to repeatedly call `nls()` using different starting values drawn as random or fixed points from a pre-defined grid. This is implemented by `nls2::nls2()` using one of the methods `"brute-force"`, `"grid-search"`, or `"random-search"`. The new multi-start procedure in `gsl_nls()` tries to improve on naive random or grid-based multi-start optimization, which can be a very time consuming process, especially if the number of parameters is large (curse of dimensionality) or the scale of the parameter ranges to evaluate is quite broad. As in any multi-start global optimization procedure, the ideal approach would be to start a local NLS optimizer within each *basin of attraction*[^2] exactly once to reach all existing local minima with minimal computational effort. In practice, we try to avoid running too many local optimizers in the same basin of attraction (resulting in the same local minimum) by exploring the parameter space for promising starting values that might converge to an unseen (local) optimum. The multi-start algorithm implemented in `gsl_nls()` is a modified version of the algorithm in [@HY97] that works both with or without a pre-defined grid of starting ranges. Before describing the details of the multi-start procedure, below are several examples illustrating its usage with `gsl_nls()`.
+If no `selfStart` model is available, another approach is to repeatedly call `nls()` using different starting values drawn as random or fixed points from a pre-defined grid. This is implemented by `nls2::nls2()` using one of the methods `"brute-force"`, `"grid-search"`, or `"random-search"`. The new multistart procedure in `gsl_nls()` tries to improve on naive random or grid-based multistart optimization, which can be a very time consuming process, especially if the number of parameters is large (curse of dimensionality) or the scale of the parameter ranges to evaluate is quite broad. As in any multistart global optimization procedure, the ideal approach would be to start a local NLS optimizer within each *basin of attraction*[^2] exactly once to reach all existing local minima with minimal computational effort. In practice, we try to avoid running too many local optimizers in the same basin of attraction (resulting in the same local minimum) by exploring the parameter space for promising starting values that might converge to an unseen (local) optimum. The multistart algorithm implemented in `gsl_nls()` is a modified version of the algorithm in [@HY97] that works both with or without a pre-defined grid of starting ranges. Before describing the details of the multistart procedure, below are several examples illustrating its usage with `gsl_nls()`.
 
 ## NLS examples
 
@@ -200,7 +201,7 @@ If no `selfStart` model is available, another approach is to repeatedly call `nl
 Revisiting the Hobbs' weed infestation example above, we fit the nonlinear model with `gsl_nls()` using a (fixed) set of starting ranges for the parameters instead of individual starting values: 
 
 ```{r, echo = TRUE}
-## multi-start attempt gsl_nls
+## multistart attempt gsl_nls
 gsl_nls(
   fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
   data = hobbs_weed,
@@ -208,10 +209,10 @@ gsl_nls(
 )
 ```
 
-Alternatively, we can leave one or more starting ranges undefined, in which case they are updated dynamically during the multi-start optimization:
+Alternatively, we can leave one or more starting ranges undefined, in which case they are updated dynamically during the multistart optimization:
 
 ```{r, echo = TRUE}
-## multi-start attempt 2 gsl_nls
+## multistart attempt 2 gsl_nls
 gsl_nls(
   fn = y ~ b1 / (1 + b2 * exp(-b3 * x)),
   data = hobbs_weed,
@@ -261,10 +262,10 @@ nls(
 
 As seen from this example, most parameter starting values --except for `b7`-- are not that far from their target values. However, `nls()` still fails to converge due to a single poorly selected starting value for the parameter `b7`. 
 
-Using the multi-start procedure in `gsl_nls()`, we can combine fixed starting values or ranges when good initial guesses for the parameters are available together with missing starting values for the parameters that are lacking such information. This avoids the need to select poor starting values for certain parameters, which may cause the NLS optimization to fail as in our previous attempt to fit the model.
+Using the multistart procedure in `gsl_nls()`, we can combine fixed starting values or ranges when good initial guesses for the parameters are available together with missing starting values for the parameters that are lacking such information. This avoids the need to select poor starting values for certain parameters, which may cause the NLS optimization to fail as in our previous attempt to fit the model.
 
 ```{r, echo = TRUE}
-## multi-start attempt gsl_nls
+## multistart attempt gsl_nls
 gsl_nls(
   fn = gauss1$fn,
   data = gauss1$data,
@@ -316,10 +317,10 @@ nls(
 )
 ```
 
-Attempting to solve the NLS problem with the multi-start procedure in `gsl_nls()`, we are able to obtain correct NLS convergence without any knowledge of the target parameters by leaving all starting values unspecified:
+Attempting to solve the NLS problem with the multistart procedure in `gsl_nls()`, we are able to obtain correct NLS convergence without any knowledge of the target parameters by leaving all starting values unspecified:
 
 ```{r, echo = TRUE}
-## multi-start attempt gsl_nls
+## multistart attempt gsl_nls
 gsl_nls(
   fn = lubricant$fn,
   data = lubricant$data,
@@ -327,9 +328,9 @@ gsl_nls(
 )
 ```
 
-## Multi-start algorithm details
+## Multistart algorithm details
 
-Before evaluating more NLS test problems, this section provides a more comprehensive overview of the implemented multi-start algorithm. The implementation is primarily based on the global optimization algorithm in [@HY97], but slightly modified to the context of trust-region nonlinear least squares. The multi-start algorithm consists of multiple *major* iterations. At the start of major iteration $M$, a set of pseudo-random starting points is sampled inside the grid of starting ranges. Starting points with an almost singular (approximate) Hessian matrix are discarded immediately, as these are unlikely to converge to a local optimum. For the remaining points, a few iterations of the NLS optimizer are applied in order to distinguish promising from unpromising starting points. At each major iteration, only the $q$ most promising starting points are kept, and if a starting point is not discarded from this set for at least $s$ major iterations, a full NLS optimization routine is executed using this starting point. If a new optimal solution is found, the number of *optimal* stationary points NOSP is incremented and the number of found *worse* stationary points NWSP is reset to zero. If the obtained solution has already been observed before, or if it converges to a local minimum that is worse than the current optimal solution, the number of *worse* stationary points NSWP is incremented. If the number of found *worse* stationary points (NWSP) becomes much larger than the number of *optimal* starting points (NOSP), then it is likely that we have exhausted the search space and are unable to further improve the current optimal solution. The following pseudo-code provides a high-level description of the multi-start procedure. For simplicity, we first consider the scenario in which all $p$ parameter starting ranges $[l_1, u_1] \times \ldots \times [l_{p}, u_{p}]$ are pre-defined and fixed.
+Before evaluating more NLS test problems, this section provides a more comprehensive overview of the implemented multistart algorithm. The implementation is primarily based on the global optimization algorithm in [@HY97], but slightly modified to the context of trust-region nonlinear least squares. The multistart algorithm consists of multiple *major* iterations. At the start of major iteration $M$, a set of pseudo-random starting points is sampled inside the grid of starting ranges. Starting points with an almost singular (approximate) Hessian matrix are discarded immediately, as these are unlikely to converge to a local optimum. For the remaining points, a few iterations of the NLS optimizer are applied in order to distinguish promising from unpromising starting points. At each major iteration, only the $q$ most promising starting points are kept, and if a starting point is not discarded from this set for at least $s$ major iterations, a full NLS optimization routine is executed using this starting point. If a new optimal solution is found, the number of *optimal* stationary points NOSP is incremented and the number of found *worse* stationary points NWSP is reset to zero. If the obtained solution has already been observed before, or if it converges to a local minimum that is worse than the current optimal solution, the number of *worse* stationary points NSWP is incremented. If the number of found *worse* stationary points (NWSP) becomes much larger than the number of *optimal* starting points (NOSP), then it is likely that we have exhausted the search space and are unable to further improve the current optimal solution. The following pseudo-code provides a high-level description of the multistart procedure. For simplicity, we first consider the scenario in which all $p$ parameter starting ranges $[l_1, u_1] \times \ldots \times [l_{p}, u_{p}]$ are pre-defined and fixed.
 
 1. **INITIALIZE** 
     * Choose parameters $N \geq q \geq 1$, $L \geq \ell \geq 1$, $s \geq 1$, $r > 1$, `maxstart` $\geq 1$, `minsp` $\geq 1$. Set $M = 0$, NOSP = NWSP = 0, and initialize a scaling vector $\boldsymbol{D} = (0.75, \dots, 0.75) \in [0, 1]^p$.
@@ -349,11 +350,11 @@ Before evaluating more NLS test problems, this section provides a more comprehen
 6. **REPEAT**
     * If NWSP $\geq$ $r \cdot$ NSP and NSP $\geq$ `minsp` (minimum required number of stationary points) then stop with success. Otherwise, if $M <$ `maxstart`, increment $M = M + 1$ and return to step 2. sampling new pseudo-random points for each $i$ with $S(i) = 0$, reusing $\boldsymbol{\theta}_i = \boldsymbol{\theta}_i^{**}$ if $S(i) > 0$.
 
-It is important to point out that there is no guarantee that the NLS objective $F(\boldsymbol{\theta}^{opt})$ at the solution returned by the multi-start procedure indeed evaluates to the global minimum inside the grid of starting ranges. This may for instance be due to the rescaling function in step 2., which is a type of inverse logistic function scaled to the starting range $[l_k, u_k]$. The scaling exponent $D_k$ is calculated from the damping matrix in Marquardt's scaling method, thereby rescaling each parameter differently based on an approximate measure of its order of magnitude. If the damping matrix that is used to calculate the $D_k$'s is highly --but incorrectly-- confident about the order of magnitudes of certain parameters, we may not explore the parameter starting ranges $[l_k, u_k]$ sufficiently broadly in the subsequent major iterations. Increasing the number of sampled points $N$ at the start of each major iteration may help to overcome such issues. If we suspect that the returned optimal solution $\boldsymbol{\theta}^{opt}$ is only a local optimizing solution, we can always force the multi-start procedure to continue searching until a better optimum is found by increasing `minsp` (minimum required number of stationary points).
+It is important to point out that there is no guarantee that the NLS objective $F(\boldsymbol{\theta}^{opt})$ at the solution returned by the multistart procedure indeed evaluates to the global minimum inside the grid of starting ranges. This may for instance be due to the rescaling function in step 2., which is a type of inverse logistic function scaled to the starting range $[l_k, u_k]$. The scaling exponent $D_k$ is calculated from the damping matrix in Marquardt's scaling method, thereby rescaling each parameter differently based on an approximate measure of its order of magnitude. If the damping matrix that is used to calculate the $D_k$'s is highly --but incorrectly-- confident about the order of magnitudes of certain parameters, we may not explore the parameter starting ranges $[l_k, u_k]$ sufficiently broadly in the subsequent major iterations. Increasing the number of sampled points $N$ at the start of each major iteration may help to overcome such issues. If we suspect that the returned optimal solution $\boldsymbol{\theta}^{opt}$ is only a local optimizing solution, we can always force the multistart procedure to continue searching until a better optimum is found by increasing `minsp` (minimum required number of stationary points).
 
 ### Missing starting ranges
 
-If no fixed starting values or ranges are defined for certain parameters, as demonstrated in the above examples, then the missing ranges $[l_k, u_k]$ are initialized to the unit interval and dynamically increased or decreased in each major iteration of the multi-start algorithm. The decision to increase or decrease the limits of a parameter's starting range is driven by the minimum and maximum parameter values obtained from the $q$ best-performing concentrated points (step 3. and 4.) with indices included in $I_q$. These typically provide a rough indication of the order of magnitude of the parameter range in which to search for the optimal solution. If the dynamic parameter ranges fail to grow sufficiently large to include the global optimizing solution, it may help to increase the values of $N$, $r$, `maxstart` or `minsp` to avoid early termination of the algorithm at the cost of increased computation effort.    
+If no fixed starting values or ranges are defined for certain parameters, as demonstrated in the above examples, then the missing ranges $[l_k, u_k]$ are initialized to the unit interval and dynamically increased or decreased in each major iteration of the multistart algorithm. The decision to increase or decrease the limits of a parameter's starting range is driven by the minimum and maximum parameter values obtained from the $q$ best-performing concentrated points (step 3. and 4.) with indices included in $I_q$. These typically provide a rough indication of the order of magnitude of the parameter range in which to search for the optimal solution. If the dynamic parameter ranges fail to grow sufficiently large to include the global optimizing solution, it may help to increase the values of $N$, $r$, `maxstart` or `minsp` to avoid early termination of the algorithm at the cost of increased computation effort.    
 
 # NLS test problems
 
@@ -469,7 +470,7 @@ fwrite(test_fits, "test_fits.csv", append = FALSE)
 
 ## Benchmark NLS fits
 
-To conclude, we benchmark the performance of the multi-start algorithm by computing NLS model fits for each of the 59 test problems using the multi-start algorithm with no starting values provided, i.e. all starting values are set to `NA`. As trust region method we choose respectively: the default Levenberg-Marquardt algorithm (`algorithm = "lm"`); the double dogleg algorithm (`algorithm = "ddogleg"`); and the Levenberg-Marquardt algorithm with geodesic acceleration (`algorithm = "lmaccel"`). The maximum number of allowed iterations `maxiter` is set to $10\ 000$, all other tuning parameters in the `control` argument are kept at their default values according to `gsl_nls_control()`. For comparison, we also compute single-start NLS model fits using the default Levenberg Marquardt algorithm (`algorithm = "lm"`), with as naive choice of starting values a vector of all ones $(1, \ldots, 1)$, similar to `nls()` when argument `start` is missing.
+To conclude, we benchmark the performance of the multistart algorithm by computing NLS model fits for each of the 59 test problems using the multistart algorithm with no starting values provided, i.e. all starting values are set to `NA`. As trust region method we choose respectively: the default Levenberg-Marquardt algorithm (`algorithm = "lm"`); the double dogleg algorithm (`algorithm = "ddogleg"`); and the Levenberg-Marquardt algorithm with geodesic acceleration (`algorithm = "lmaccel"`). The maximum number of allowed iterations `maxiter` is set to $10\ 000$, all other tuning parameters in the `control` argument are kept at their default values according to `gsl_nls_control()`. For comparison, we also compute single-start NLS model fits using the default Levenberg Marquardt algorithm (`algorithm = "lm"`), with as naive choice of starting values a vector of all ones $(1, \ldots, 1)$, similar to `nls()` when argument `start` is missing.
 
 The table below displays the NLS model fit results for each individual test problem using the following status colors:
 
@@ -478,7 +479,7 @@ The table below displays the NLS model fit results for each individual test prob
 * <span style="background-color:#FDAE61"> max. iterations </span>; the NLS routine failed to converge within the maximum number of allowed iterations.
 * <span style="color:#FFFFFF;background-color:#D7191C"> failed/non-zero exit </span>; the NLS routine failed to converge and returns an error or an NLS object with a non-zero exit code.
 
-We observe that the naive single-start model fits manage to correctly fit about half of the test problems (27 out of 59), suggesting that these test problems are straightforward to optimize and do not require well-informed starting values. The multi-start model fits using the double dogleg method improve upon the naive single-start model fits achieving correct convergence for 51 out of 59 test problems. The multi-start Levenberg-Marquardt model fits correctly converge for a few more test problems (56 out of 59). Finally, the most robust results are obtained with the multi-start model fits using the Levenberg-Marquardt algorithm with geodesic acceleration, which correctly fit all 59 test problems without initializing proper starting values or starting ranges! 🎉
+We observe that the naive single-start model fits manage to correctly fit about half of the test problems (27 out of 59), suggesting that these test problems are straightforward to optimize and do not require well-informed starting values. The multistart model fits using the double dogleg method improve upon the naive single-start model fits achieving correct convergence for 51 out of 59 test problems. The multistart Levenberg-Marquardt model fits correctly converge for a few more test problems (56 out of 59). Finally, the most robust results are obtained with the multistart model fits using the Levenberg-Marquardt algorithm with geodesic acceleration, which correctly fit all 59 test problems without initializing proper starting values or starting ranges! 🎉
 
 ```{r}
 ## prepare data
@@ -535,7 +536,7 @@ flextable(as.data.frame(test_fits_wide), col_keys = c("name", "lm/single-start",
 
 # References
 
-[^1]: multi-start optimization requires [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html) version >= 1.3.0. 
+[^1]: multistart optimization requires [`gslnls`](https://cran.r-project.org/web/packages/gslnls/index.html) version >= 1.3.0. 
 
 [^2]: a *basin of attraction* refers to the basin surrounding a local minimum of the objective function, such that starting from any point inside the basin the local optimizer converges to the same local minimum.
 
