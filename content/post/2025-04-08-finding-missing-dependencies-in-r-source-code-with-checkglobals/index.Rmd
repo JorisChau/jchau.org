@@ -1,0 +1,361 @@
+---
+title: 'Finding (missing) dependencies in R-source code with {checkglobals}'
+author: Joris Chau
+date: '2025-04-08'
+slug: finding-missing-dependencies-in-r-source-code-with-checkglobals
+categories:
+  - R
+tags:
+  - checkglobals
+  - R
+  - static code analysis
+  - codetools
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2025-04-08T22:00:00+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: 'Center'
+  preview_only: yes
+projects: []
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(lintr)
+library(checkglobals)
+
+opts_chunk$set(collapse = TRUE, error = TRUE, warning = FALSE, message = FALSE, echo = FALSE, eval = TRUE, comment = "#>", out.width = "100%")
+
+# save the built-in output hook
+hook_output <- knit_hooks$get("output")
+
+# set a new output hook to truncate text output
+knit_hooks$set(output = function(x, options) {
+  if (!is.null(n <- options$out.lines)) {
+    x <- xfun::split_lines(x)
+    if (length(x) > n) {
+      # truncate the output
+      x <- c(head(x, n), "....\n")
+    }
+    x <- paste(x, collapse = "\n")
+  }
+  hook_output(x, options)
+})
+
+fig_path <- file.path("index_files", "figure-html")
+```
+
+# Introduction
+
+An important aspect of writing an R-script or an R-package is ensuring reproducibility and maintainability of the developed code, not only for others, but also for our future selves. The modern R ecosystem provides various tools and packages to help organize and validate written R code. Some widely used packages that come to mind are `roxygen2` for function documentation, `renv` for dependency management and environment isolation, or `testthat`, `tinytest` or `Runit` for unit testing[^1]. When it comes to package development, it is good practice to run `R CMD check` to perform a series of automated checks identifying possible issues with the R-package. Among the checks performed by `R CMD check` is a static inspection of the internal syntax trees of the code through the use of the [`codetools`](https://CRAN.R-project.org/package=codetools) package. This code analysis allows to discover undefined functions and variables without executing the code itself, leading to the following (perhaps familiar) notifications:
+
+```{r, eval = F, echo = TRUE}
+❯ checking R code for possible problems ... NOTE
+my_fun: no visible binding for global variable ‘g’
+```
+
+The undefined global variables returned by `R CMD check` may be false positives caused by functions that use data-masking or non-standard evaluation, such as `subset()`, `transform()` or `with()`, in which case a common approach is to suppress the notifications by including the variable names inside a call to `utils::globalVariables()`. More important are the variable names that are truly undefined which we wish to detect as soon as possible since these could point to a mistake in the code or signal a missing function or package import. 
+
+In this context, this post introduces a minimal R-package `checkglobals` aimed at serving as an efficient alternative to the static code analysis provided by `codetools` to check R-packages and R-scripts for missing function imports and variable names on-the-fly. The code inspection procedures are implemented using R's internal C API for efficiency, and no external R-package dependencies are strictly required, (only [cli](https://CRAN.R-project.org/package=cli) and [knitr](https://CRAN.R-project.org/package=knitr) are suggested for interactive use and checking Rmd documents respectively). 
+
+## Example usage
+
+The `checkglobals`-package contains a single wrapper function `checkglobals()` to inspect R-scripts, Rmd-documents, folders, R-code strings or R-packages. As an example, we consider the following R-script containing a demo Shiny application (source: https://raw.githubusercontent.com/rstudio/shiny-examples/main/004-mpg/app.R).
+
+<details>
+
+<summary>scripts/app.R</summary>
+
+```{r, eval = FALSE, echo = TRUE, class.source="fold-hide"}
+# scripts/app.R
+library(shiny)
+library(datasets)
+
+# Data pre-processing ----
+mpgData <- mtcars
+mpgData$am <- factor(mpgData$am, labels = c("Automatic", "Manual"))
+
+# Define UI for miles per gallon app ----
+ui <- fluidPage(
+  titlePanel("Miles Per Gallon"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("variable", "Variable:",
+                  c("Cylinders" = "cyl",
+                    "Transmission" = "am",
+                    "Gears" = "gear")),
+      checkboxInput("outliers", "Show outliers", TRUE)
+    ),
+    mainPanel(
+      h3(textOutput("caption")),
+      plotOutput("mpgPlot")
+    )
+  )
+)
+
+# Define server logic to plot various variables against mpg ----
+server <- function(input, output) {
+  formulaText <- reactive({
+    paste("mpg ~", input$variable)
+  })
+  output$caption <- renderText({
+    formulaText()
+  })
+  output$mpgPlot <- renderPlot({
+    boxplot(as.formula(formulaText()),
+            data = mpgData,
+            outline = input$outliers,
+            col = "#75AADB", pch = 19)
+  })
+}
+
+# Create Shiny app ----
+shinyApp(ui, server)
+```
+</details>
+\
+Calling `checkglobals()` with the argument `file` on the R-script saved as a local file returns as output:
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen01.svg"))
+```
+
+Looking at the printed output of the object returned by `checkglobals()`, it lists the following information: 
+
+1. the *name* and *location* of all unrecognized global variables;
+2. the *name* and *location* of all detected imported functions grouped by R-package.
+
+The *location* `app.R#36` lists the R-file name (`app.R`) and line number (`36`) of the detected variable or function. If [cli](https://CRAN.R-project.org/package=cli) is installed and cli-hyperlinks are supported, clicking the *location* links opens the source file pointing to the given line number. The bars and counts behind the imported package names highlight the number of function calls detected from each package. 
+
+More detailed information can be obtained by calling `print()` directly. For instance, we can print the referenced source code lines of the unrecognized global variables with:
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen02.svg"))
+```
+
+The detection of imported functions and packages is an important motivation for the `checkglobals`-package. First, this allows us to validate the NAMESPACE file of a development R-package or check R-scripts for any additional packages that require installation before execution of the code. Second, this information can be used to get a better sense of the importance of an imported package, for instance to determine how much effort it would take to remove or replace it as a dependency. This is different from e.g. the `codetools` package,  where `findGlobals()` or `checkUsage()` return an undefined variable name if a function import is not recognized, but do not return variable names that have been recognized as imports. The same is true for the convenience packages [`lintr`](https://CRAN.R-project.org/package=lintr) (with `object_usage_linter()`) or [`globals`](https://CRAN.R-project.org/package=globals) which provide `codetools` wrappers producing similar results as returned by `R CMD check`. More similar is `renv::dependencies()`, which scans for all loaded and/or imported packages in an R project folder by analyzing the DESCRIPTION and NAMESPACE files of an R-package or by detecting calls to `library()`, `require()`, etc. in an R-script. Note that `renv::dependencies()` returns package names, but not the functions called from these packages.
+
+An additional benefit of a minimal and efficient code analysis package is that we can significantly reduce the runtime required to inspect large R-packages or codebases allowing to quickly check the code interactively during development:
+
+```{r, eval=FALSE, echo = TRUE}
+## absolute timings (seconds) for inspecting the shiny package 
+## (100-fold relative time difference)
+bench::mark(
+  lint_package = lint_package("~/git/shiny", linters = list(object_usage_linter())),
+  checkglobals = checkglobals(pkg = "~/git/shiny/"),
+  iterations = 10,
+  check = FALSE,
+  time_unit = "s"
+)
+#> # A tibble: 2 × 6
+#>   expression      min median `itr/sec` mem_alloc `gc/sec`
+#>   <bch:expr>    <dbl>  <dbl>     <dbl> <bch:byt>    <dbl>
+#> 1 lint_package 18.8   19.5      0.0508    1.33GB     2.42
+#> 2 checkglobals  0.157  0.162    5.96     15.69MB     1.19
+```
+
+# More examples
+
+## R Markdown files
+
+The `file` argument also accepts R Markdown (`.Rmd` or `.Rmarkdown`) file locations. For R Markdown files, the R code chunks are first extracted into a temporary R-script with `knitr::purl()`, which is then analyzed by `checkglobals()`. Instead of a local file, the `file` argument in `checkglobals()` can also be a remote file location (e.g. a server or the web), in which case the remote file is first downloaded as a temporary file with `download.file()`. Below, we scan one of `tidyr`'s package vignettes (source: https://raw.githubusercontent.com/tidyverse/tidyr/main/vignettes/tidy-data.Rmd),
+
+```{r, out.width = "100%"}
+knitr::include_graphics(file.path(fig_path, "screen04.svg"))
+```
+
+R-packages that are imported or loaded, but have no detected function imports are displayed with an `n/a` reference. This can happen when `checkglobals()` falsely ignores one or more imported functions from the given package or when the package is not actually needed as a dependency. In both cases this is useful information to have. In the above example, `tibble` is loaded in order to use `tribble()`, but the `tribble()` function is also exported by `dplyr`, so it shows up under the `dplyr` imports instead.     
+
+## Folders
+
+Folders containing R-scripts can be scanned with the `dir` argument, which inspects all R-scripts present in `dir` (and any of its subdirectories). The following example scans an R-Shiny app folder containing a `ui.R` and `server.R` file (source: https://github.com/rstudio/shiny-examples/tree/main/018-datatable-options),
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen05.svg"))
+```
+
+If imports are detected from an R-package not installed in the current R-session, an alert is printed (as with the `DT` package above). Function calls accessing the missing R-package explicitly, using e.g. `::` or `:::`, can still be fully identified as imported function names. Function calls with no reference to the missing R-package will be listed as unrecognized global variables.
+
+## R-packages
+
+R-package folders can be scanned with the `pkg` argument. Conceptually, `checkglobals()` scans all files in the `/R` folder of the package and contrasts the detected (unrecognized) globals and imports against the imports listed in the NAMESPACE file of the package. R-scripts present elsewhere in the package (e.g. in the `/inst` folder) are not analyzed, as these are not covered by the package NAMESPACE file. To illustrate, we can run `checkglobals()` on its own package folder:
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen06.svg"))
+```
+
+### Bundled packages
+
+Besides local R-package folders, the `pkg` argument also accepts file paths to bundled source R-packages (tar.gz). This can either be a tar.gz package on the local filesystem, or a remote file location, such as the web (similar to the `file` argument).
+
+##### Local filesystem:
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen07.svg"))
+```
+
+#### Remote file location:
+
+```{r, out.width = "90%"}
+knitr::include_graphics(file.path(fig_path, "screen08a.svg"))
+```
+```{r, out.width = "90%", out.extra='style=margin-top:-50px;'}
+knitr::include_graphics(file.path(fig_path, "screen08b.svg"))
+```
+
+## Known limitations 
+
+To conclude, we discuss some of the limitations of static code analysis with `codetools` and `checkglobals`. When using `codetools` (or `R CMD check`) there are several scenarios where the code inspection is known to skip undefined names that could potentially be detected. First, a variable that requires evaluation before it is defined may be missed, as `codetools` does not track in which order assignment and evaluation happen inside a local scope. Here is a minimal example using `codetools::findGlobals()`:
+
+```{r, echo = TRUE}
+## findGlobals requires a function as input
+test1 <- function() {
+  print(x)
+  x <- 1
+}
+
+## calling this function generates an error
+test1()
+```
+
+```{r, echo = TRUE}
+library(codetools)
+
+## x is not recognized as an undefined 
+## variable at the moment of evaluation
+findGlobals(test1)
+```
+
+Another quite common situation is the use of a character function name inside a functional, e.g. `Reduce()`, `Filter()`, `Map()` or the `apply`-family of functions. These function names are viewed by `codetools` as ordinary character strings:
+
+```{r, echo = TRUE}
+test2 <- function() { 
+  do.call("foo", 1) 
+}
+
+## foo is not recognized as an undefined
+## variable since it is defined as a string
+findGlobals(test2)
+```
+
+Finally, more complex assignment statements may not always be handled as expected: 
+
+```{r, echo = TRUE}
+test3 <- function() { 
+  assign(x = "x1", value = 1)
+  assign(value = 2, x = "x2")
+  c(x1, x2)
+}
+
+## assignment to x1 is recognized correctly, 
+## but assignment to x2 is not
+findGlobals(test3)
+```
+```{r, echo = TRUE}
+x <- NA
+test4 <- function() { 
+  x <<- 1
+  x
+}
+
+## x is assigned in a different scope 
+## but is available when evaluated
+findGlobals(test4)
+```
+
+The `checkglobals`-package tries to address some of these use-cases, but due to R's flexibility as a language, there are a number of use-cases we can think of that are either too ambiguous or complex to be analyzed without evaluation of the code itself. Below we list some of these cases, where `checkglobals()` fails to recognize a variable name (false negative) or falsely detects a global variable when it should not (false positive). 
+
+#### Character variable/function names
+
+```{r, echo = TRUE, eval = FALSE}
+## this works (character arguments are recognized as functions)
+checkglobals(text = 'do.call(args = list(1), what = "median")')
+checkglobals(text = 'Map("g", 1, n = 1)')
+checkglobals(text = 'stats::aggregate(x ~ ., data = y, FUN = "g")')
+
+## this doesn't work (evaluation is required)
+checkglobals(text = 'g <- "f"; Map(g, 1, n = 1)')
+checkglobals(text = "eval(substitute(g))") ## same for ~, expression, quote, bquote, Quote, etc.
+```
+
+```{r, echo = TRUE, eval = FALSE}
+## this works (calling a function in an exotic way)
+checkglobals(text = '"head"(1:10)')
+checkglobals(text = '`::`("utils", "head")(1:10)')
+checkglobals(text = 'list("function" = utils::head)$`function`(1:10)')
+
+## this doesn't work (evaluation is required)
+checkglobals(text = 'get("head")(1:10)')
+checkglobals(text = 'methods::getMethod("f", signature = "ANY")')
+```
+
+#### Package loading
+
+```{r, echo = TRUE, eval = FALSE}
+## this works (simple evaluation of package names)
+checkglobals(text = 'attachNamespace("utils"); head(1:10)')
+checkglobals(text = 'pkg <- "utils"; library(pkg, character.only = TRUE); head(1:10)')
+
+## this doesn't work (more complex evaluation is required)
+checkglobals(text = 'pkg <- function() "utils"; library(pkg(), character.only = TRUE); head(1:10)')
+checkglobals(text = 'loadPkg <- library; loadPkg(utils)')
+checkglobals(text = 'box::use(utils[...])')
+```
+
+#### Unknown symbols
+
+```{r, echo = TRUE, eval = FALSE}
+## this works (special functions self, private, super are recognized)
+checkglobals(text = 'R6::R6Class("cl",
+                   public = list(
+                     initialize = function(...) self$f(...),
+                     f = function(...) private$p
+                   ),
+                   private = list(
+                     p = list()
+                   ))')
+
+## this doesn't work (data masking)
+checkglobals(text = 'transform(mtcars, mpg2 = mpg^2)')
+checkglobals(text = 'attach(iris); print(Sepal.Width)')
+```
+
+#### Lazy evaluation
+
+```{r, echo = TRUE, eval = FALSE}
+## this works (basic lazy evaluation)
+checkglobals(text = '{
+    addy <- function(y) x + y 
+    x <- 0
+    addy(1)
+}')
+checkglobals(
+  text = 'function() { 
+    on.exit(rm(x))
+    x <- 0 
+}')
+
+## this doesn't work (lazy evaluation in external functions)
+checkglobals(
+  text = 'server <- function(input, output) {
+    add1x <- shiny::reactive({
+      add1(input$x)
+    })
+    add1 <- function(x) x + 1  
+  }')
+```
+
+<br>
+
+# Useful references
+
+* `checkglobals` package webpage: https://jorischau.github.io/checkglobals/.
+* `codetools::findGlobals()`, detects global variables from R-scripts via static code analysis. This and other *codetools* functions are used in the source code checks run by `R CMD check`.
+* [globals](https://CRAN.R-project.org/package=globals), R-package by H. Bengtsson providing a re-implementation of the functions in *codetools* to identify global variables using various strategies for export in parallel computations. 
+* `renv::dependencies()`, detects R-package dependencies by scanning all R-files in a project for imported functions or packages via static code analysis.
+* [lintr](https://CRAN.R-project.org/package=lintr), R-package by J. Hester and others to perform general static code analysis in R projects. `lintr::object_usage_linter()` provides a wrapper of `codetools::checkUsage()` to detect global variables similar to `R CMD check`.
+
+[^1]: Unit testing with `R CMD check` does not require the use of external packages, but many package developers rely on packages such as `testthat` or `tinytest` for convenience and due to common practice. 
